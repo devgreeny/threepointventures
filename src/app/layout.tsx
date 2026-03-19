@@ -1,25 +1,14 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
-  subsets: ["latin"],
-});
-
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
-  subsets: ["latin"],
-});
-
 export const metadata: Metadata = {
-  title: "3PT Ventures — March Madness Underdog Tracker",
+  title: "3PT Ventures — March Madness Tracker",
   description:
-    "Live tracking of every underdog moneyline bet in the 2025 NCAA Tournament. All dogs, all day.",
+    "Live tracking of every higher-seed bet in the 2025 NCAA Tournament.",
   openGraph: {
-    title: "3PT Ventures — March Madness Underdog Tracker",
+    title: "3PT Ventures — March Madness Tracker",
     description:
-      "We bet every underdog ML in March Madness. Follow our chaos live.",
+      "We bet every higher seed in March Madness. Follow along live.",
     type: "website",
   },
 };
@@ -30,10 +19,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html
-      lang="en"
-      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
-    >
+    <html lang="en" className="h-full">
       <body className="min-h-full flex flex-col">{children}</body>
     </html>
   );

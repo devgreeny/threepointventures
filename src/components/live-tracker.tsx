@@ -23,12 +23,14 @@ function calcPayout(odds: number): number {
   return UNIT_SIZE * (100 / Math.abs(odds));
 }
 
-function formatTime(iso: string): string {
+function formatDate(iso: string): string {
   if (!iso) return "";
-  const d = new Date(iso);
-  return d.toLocaleDateString("en-US", { month: "short", day: "numeric" }) +
-    " · " +
-    d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+  return new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+}
+
+function formatTipoff(iso: string): string {
+  if (!iso) return "";
+  return new Date(iso).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
 }
 
 function getStats(games: ApiGame[]) {
@@ -47,7 +49,6 @@ function getStats(games: ApiGame[]) {
 
   return {
     total: games.length,
-    settled: settled.length,
     wins: wins.length,
     losses: losses.length,
     pending: games.length - settled.length,
@@ -57,175 +58,196 @@ function getStats(games: ApiGame[]) {
   };
 }
 
-function ResultBadge({ game }: { game: ApiGame }) {
+/* ── Tiny sub-components ── */
+
+function StatusPill({ game }: { game: ApiGame }) {
   if (game.status === "live") {
     const half = game.period === 1 ? "1H" : game.period === 2 ? "2H" : game.period ? `OT${game.period - 2}` : "";
+    const label = game.clock && game.clock !== "0.0" ? `${half} ${game.clock}` : "LIVE";
     return (
-      <span className="inline-flex items-center gap-1.5 rounded-full bg-live/15 px-2.5 py-0.5 text-xs font-semibold text-live">
-        <span className="h-1.5 w-1.5 rounded-full bg-live animate-pulse-live" />
-        {game.clock && game.clock !== "0.0" ? `${half} ${game.clock}` : "LIVE"}
+      <span className="inline-flex items-center gap-1.5 text-[12px] font-semibold text-ios-red">
+        <span className="h-[6px] w-[6px] rounded-full bg-ios-red animate-pulse-live" />
+        {label}
       </span>
     );
   }
-  const map = {
-    win: { bg: "bg-win/15", text: "text-win", label: "WIN ✓" },
-    loss: { bg: "bg-loss/15", text: "text-loss", label: "LOSS" },
-    push: { bg: "bg-pending/15", text: "text-pending", label: "PUSH" },
-    pending: { bg: "bg-pending/10", text: "text-pending", label: "PENDING" },
-  };
-  const s = map[game.result];
+
+  if (game.status === "final") {
+    if (game.result === "win")
+      return <span className="text-[12px] font-semibold text-ios-green">Win</span>;
+    if (game.result === "loss")
+      return <span className="text-[12px] font-semibold text-ios-red">Loss</span>;
+    return <span className="text-[12px] font-medium text-secondary">Final</span>;
+  }
+
+  return <span className="text-[12px] font-medium text-tertiary">Upcoming</span>;
+}
+
+function SeedBadge({ seed, highlight }: { seed?: number; highlight?: boolean }) {
+  if (!seed) return null;
   return (
-    <span className={`rounded-full ${s.bg} px-2.5 py-0.5 text-xs font-semibold ${s.text}`}>
-      {s.label}
+    <span
+      className={`flex h-[22px] min-w-[22px] items-center justify-center rounded-[6px] px-1 text-[11px] font-bold tabular-nums ${
+        highlight
+          ? "bg-ios-blue/10 text-ios-blue"
+          : "bg-label-bg text-secondary"
+      }`}
+    >
+      {seed}
     </span>
   );
 }
 
-function StatCard({ label, value, sub, accent }: {
-  label: string; value: string; sub?: string; accent?: "win" | "loss" | "neutral";
-}) {
-  const color = accent === "win" ? "text-win" : accent === "loss" ? "text-loss" : "text-foreground";
-  return (
-    <div className="flex flex-col items-center rounded-xl border border-card-border bg-card/60 px-4 py-4 backdrop-blur-sm">
-      <p className="text-[11px] font-medium uppercase tracking-wider text-pending">{label}</p>
-      <p className={`mt-1 text-2xl font-bold tabular-nums ${color}`}>{value}</p>
-      {sub && <p className="mt-0.5 text-[11px] font-medium text-pending">{sub}</p>}
-    </div>
-  );
-}
+/* ── Game card ── */
 
 function GameCard({ game, index }: { game: ApiGame; index: number }) {
-  const profit = game.result === "win" ? calcPayout(game.underdog.odds)
+  const profit =
+    game.result === "win" ? calcPayout(game.underdog.odds)
     : game.result === "loss" ? -UNIT_SIZE
-    : game.result === "push" ? 0 : null;
+    : game.result === "push" ? 0
+    : null;
 
   const showScores = game.status === "final" || game.status === "live";
-  const dogAhead = showScores &&
-    (game.underdog.score ?? 0) >= (game.favorite.score ?? 0);
   const isLive = game.status === "live";
   const hasOdds = game.underdog.odds !== 0;
 
   return (
     <div
-      className={`animate-slide-up rounded-xl border bg-card/50 backdrop-blur-sm overflow-hidden transition-colors hover:border-card-border/80 ${
-        isLive ? "border-live/30 shadow-[0_0_20px_-5px] shadow-live/10" : "border-card-border"
+      className={`animate-fade-in bg-card rounded-2xl overflow-hidden ${
+        isLive ? "shadow-card-elevated" : "shadow-card"
       }`}
-      style={{ animationDelay: `${Math.min(index, 10) * 30}ms` }}
+      style={{ animationDelay: `${Math.min(index, 12) * 25}ms` }}
     >
-      {/* Header */}
-      <div className="flex items-center justify-between px-4 py-2.5 border-b border-card-border/50">
-        <span className="text-[11px] text-pending truncate">
-          {formatTime(game.commence_time)}
-        </span>
-        <ResultBadge game={game} />
+      {/* Top bar */}
+      <div className="flex items-center justify-between px-4 pt-3 pb-0">
+        <div className="flex items-center gap-1.5 text-[12px] text-tertiary">
+          {game.status === "upcoming" && game.commence_time ? (
+            <>
+              <span className="font-semibold text-foreground">{formatTipoff(game.commence_time)}</span>
+              <span>·</span>
+              <span>{formatDate(game.commence_time)}</span>
+            </>
+          ) : (
+            <span>{formatDate(game.commence_time)}</span>
+          )}
+        </div>
+        <StatusPill game={game} />
       </div>
 
-      {/* Matchup */}
-      <div className="px-4 py-3">
-        <div className="flex items-center justify-between gap-2">
-          {/* Favorite */}
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2">
-              {game.favorite.seed && (
-                <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-white/5 text-[10px] font-bold text-pending">
-                  {game.favorite.seed}
-                </span>
-              )}
-              <span className={`text-sm font-medium truncate ${
-                game.status === "final" && game.result === "win" ? "text-pending/60" : "text-foreground"
-              }`}>
-                {game.favorite.name}
-              </span>
-            </div>
-          </div>
-
-          {/* Score */}
-          {showScores ? (
-            <div className="flex items-center gap-3 tabular-nums px-2 shrink-0">
-              <span className={`text-lg font-bold ${dogAhead ? "text-pending/60" : "text-foreground"}`}>
-                {game.favorite.score ?? "-"}
-              </span>
-              <span className="text-xs text-pending">-</span>
-              <span className={`text-lg font-bold ${
-                !dogAhead ? "text-pending/60" : isLive ? "text-win" : "text-foreground"
-              }`}>
-                {game.underdog.score ?? "-"}
-              </span>
-            </div>
-          ) : (
-            <span className="text-xs text-pending px-2 shrink-0">vs</span>
+      {/* Matchup rows */}
+      <div className="px-4 pt-2.5 pb-1">
+        {/* Opponent (lower seed) */}
+        <div className="flex items-center gap-2.5 py-[6px]">
+          <SeedBadge seed={game.favorite.seed} />
+          <span className={`flex-1 text-[15px] font-medium truncate ${
+            game.status === "final" && game.result === "win" ? "text-tertiary" : "text-foreground"
+          }`}>
+            {game.favorite.name}
+          </span>
+          {showScores && (
+            <span className={`text-[17px] font-semibold tabular-nums ${
+              game.status === "final" && game.result === "win" ? "text-tertiary" : "text-foreground"
+            }`}>
+              {game.favorite.score ?? "-"}
+            </span>
           )}
-
-          {/* Underdog (our pick) */}
-          <div className="flex-1 min-w-0 text-right">
-            <div className="flex items-center justify-end gap-2">
-              <span className={`text-sm font-medium truncate ${
-                game.status === "final" && game.result === "loss" ? "text-pending/60" : "text-foreground"
-              }`}>
-                {game.underdog.name}
-              </span>
-              {game.underdog.seed && (
-                <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-accent/10 text-[10px] font-bold text-accent">
-                  {game.underdog.seed}
-                </span>
-              )}
-            </div>
-          </div>
         </div>
 
-        {/* Win probability bar — only for live games */}
-        {isLive && game.underdogWinPct !== undefined && (
-          <div className="mt-3">
-            <div className="flex items-center justify-between text-[10px] font-semibold mb-1">
-              <span className="text-pending">
-                {(100 - game.underdogWinPct).toFixed(0)}%
+        <div className="h-px bg-separator mx-0" />
+
+        {/* Our pick (higher seed) */}
+        <div className="flex items-center gap-2.5 py-[6px]">
+          <SeedBadge seed={game.underdog.seed} highlight />
+          <span className={`flex-1 text-[15px] font-semibold truncate ${
+            game.status === "final" && game.result === "loss" ? "text-tertiary" : "text-foreground"
+          }`}>
+            {game.underdog.name}
+          </span>
+          {showScores && (
+            <span className={`text-[17px] font-bold tabular-nums ${
+              game.status === "final" && game.result === "loss"
+                ? "text-tertiary"
+                : isLive
+                  ? "text-ios-blue"
+                  : "text-foreground"
+            }`}>
+              {game.underdog.score ?? "-"}
+            </span>
+          )}
+        </div>
+      </div>
+
+      {/* Win probability — live only */}
+      {isLive && game.underdogWinPct !== undefined && (() => {
+        const favPct = 100 - game.underdogWinPct;
+        const dogPct = game.underdogWinPct;
+        const dogLeading = dogPct >= 50;
+        const favShort = game.favorite.name.split(" ").pop() ?? game.favorite.name;
+        const dogShort = game.underdog.name.split(" ").pop() ?? game.underdog.name;
+        return (
+          <div className="px-4 pb-1">
+            <div className="flex items-center justify-between text-[11px] mb-1">
+              <span className={`tabular-nums ${dogLeading ? "text-tertiary" : "font-semibold text-foreground"}`}>
+                {favShort} {favPct.toFixed(0)}%
               </span>
-              <span className="uppercase tracking-wider text-pending/60">Win Prob</span>
-              <span className={game.underdogWinPct >= 50 ? "text-win" : "text-accent"}>
-                {game.underdogWinPct.toFixed(0)}% 🐶
+              <span className={`tabular-nums ${dogLeading ? "font-semibold text-ios-green" : "text-ios-blue"}`}>
+                {dogShort} {dogPct.toFixed(0)}%
               </span>
             </div>
-            <div className="relative h-2 w-full rounded-full bg-white/5 overflow-hidden">
-              {/* Favorite side (left, grey) */}
+            <div className="relative h-[5px] w-full rounded-full bg-label-bg overflow-hidden">
               <div
-                className="absolute inset-y-0 left-0 rounded-full bg-pending/30 transition-all duration-700 ease-out"
-                style={{ width: `${100 - game.underdogWinPct}%` }}
+                className={`absolute inset-y-0 left-0 rounded-full transition-all duration-700 ease-out ${
+                  dogLeading ? "bg-tertiary/40" : "bg-foreground/20"
+                }`}
+                style={{ width: `${favPct}%` }}
               />
-              {/* Underdog side (right, colored) */}
               <div
                 className={`absolute inset-y-0 right-0 rounded-full transition-all duration-700 ease-out ${
-                  game.underdogWinPct >= 50 ? "bg-win/60" : "bg-accent/50"
+                  dogLeading ? "bg-ios-green" : "bg-ios-blue"
                 }`}
-                style={{ width: `${game.underdogWinPct}%` }}
+                style={{ width: `${dogPct}%` }}
               />
             </div>
           </div>
-        )}
+        );
+      })()}
 
-        {/* Bottom: wager + payout */}
-        {hasOdds && (
-          <div className="mt-2.5 flex items-center justify-between text-xs">
-            <span className="rounded-md bg-accent/10 px-2 py-0.5 font-mono font-semibold text-accent">
-              🐶 ML {formatOdds(game.underdog.odds)}
+      {/* Bet info footer */}
+      {hasOdds && (
+        <div className="flex items-center justify-between px-4 pt-2 pb-3 text-[13px]">
+          <span className="font-semibold text-ios-blue tabular-nums">
+            ML {formatOdds(game.underdog.odds)}
+          </span>
+          <span className="text-tertiary tabular-nums">
+            ${UNIT_SIZE}/person
+          </span>
+          {profit !== null ? (
+            <span className={`font-semibold tabular-nums ${profit >= 0 ? "text-ios-green" : "text-ios-red"}`}>
+              {formatMoney(profit)}
             </span>
-            <span className="font-mono text-pending">
-              ${UNIT_SIZE} bet
+          ) : (
+            <span className="text-secondary tabular-nums">
+              Win {formatMoney(calcPayout(game.underdog.odds))}
             </span>
-            {profit !== null ? (
-              <span className={`font-mono font-semibold ${profit >= 0 ? "text-win" : "text-loss"}`}>
-                {formatMoney(profit)}
-              </span>
-            ) : (
-              <span className="font-mono text-pending">
-                To win: {formatMoney(calcPayout(game.underdog.odds))}
-              </span>
-            )}
-          </div>
-        )}
-      </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
+
+/* ── Stats bar ── */
+
+function StatItem({ label, value, color }: { label: string; value: string; color?: string }) {
+  return (
+    <div className="flex flex-col items-center">
+      <p className={`text-[20px] font-bold tabular-nums ${color ?? "text-foreground"}`}>{value}</p>
+      <p className="text-[11px] font-medium text-tertiary mt-0.5">{label}</p>
+    </div>
+  );
+}
+
+/* ── Main component ── */
 
 export default function LiveTracker() {
   const [games, setGames] = useState<ApiGame[]>([]);
@@ -252,76 +274,76 @@ export default function LiveTracker() {
 
   useEffect(() => {
     fetchGames();
-    const id = setInterval(() => {
-      fetchGames();
-    }, hasLiveRef.current ? POLL_LIVE : POLL_IDLE);
+    const id = setInterval(fetchGames, hasLiveRef.current ? POLL_LIVE : POLL_IDLE);
     return () => clearInterval(id);
   }, [fetchGames]);
 
   const stats = getStats(games);
-  const profitAccent = stats.totalProfit > 0 ? "win" : stats.totalProfit < 0 ? "loss" : "neutral";
+  const profitColor = stats.totalProfit > 0 ? "text-ios-green" : stats.totalProfit < 0 ? "text-ios-red" : undefined;
   const liveCount = games.filter((g) => g.status === "live").length;
 
-  // Group: live, upcoming, final
   const liveGames = games.filter((g) => g.status === "live");
   const upcomingGames = games.filter((g) => g.status === "upcoming");
   const finalGames = games.filter((g) => g.status === "final");
 
   const sections = [
-    { label: "Live Now", emoji: "🔴", games: liveGames },
-    { label: "Upcoming", emoji: "⏳", games: upcomingGames },
-    { label: "Final", emoji: "✅", games: finalGames },
+    { label: "Live", games: liveGames },
+    { label: "Upcoming", games: upcomingGames },
+    { label: "Final", games: finalGames },
   ].filter((s) => s.games.length > 0);
 
   return (
     <>
-      {/* Stats */}
-      <section className="border-b border-card-border bg-card/30">
-        <div className="mx-auto max-w-3xl px-4 py-5">
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-            <StatCard label="Record" value={`${stats.wins}-${stats.losses}`} sub={`${stats.pending} pending`} />
-            <StatCard label="P/L" value={formatMoney(stats.totalProfit)} accent={profitAccent} />
-            <StatCard label="ROI" value={`${stats.roi >= 0 ? "+" : ""}${stats.roi.toFixed(1)}%`} accent={profitAccent} />
-            <StatCard label="Total Bets" value={`${stats.total}`} sub={`$${stats.totalWagered} wagered`} />
+      {/* Stats strip */}
+      <div className="bg-card shadow-card">
+        <div className="mx-auto max-w-lg px-5 py-4">
+          <div className="grid grid-cols-4 gap-2">
+            <StatItem label="Record" value={`${stats.wins}–${stats.losses}`} />
+            <StatItem label="P/L" value={formatMoney(stats.totalProfit)} color={profitColor} />
+            <StatItem label="ROI" value={`${stats.roi >= 0 ? "+" : ""}${stats.roi.toFixed(0)}%`} color={profitColor} />
+            <StatItem label="Bets" value={`${stats.total}`} />
           </div>
-          <div className="mt-3 flex items-center justify-center gap-2 text-xs text-pending">
+
+          <div className="flex items-center justify-center gap-1.5 mt-3 text-[12px] text-tertiary">
             {liveCount > 0 && (
-              <span className="inline-flex items-center gap-1.5 text-live font-semibold">
-                <span className="h-1.5 w-1.5 rounded-full bg-live animate-pulse-live" />
-                {liveCount} game{liveCount !== 1 ? "s" : ""} live
-              </span>
+              <>
+                <span className="inline-flex items-center gap-1 text-ios-red font-semibold">
+                  <span className="h-[5px] w-[5px] rounded-full bg-ios-red animate-pulse-live" />
+                  {liveCount} live
+                </span>
+                <span>·</span>
+              </>
             )}
-            {lastUpdated && <span>{liveCount > 0 ? " · " : ""}Updated {lastUpdated}</span>}
-            {loading && <span className="text-accent">Fetching scores...</span>}
-            {error && <span className="text-loss">Failed to fetch — retrying...</span>}
+            {lastUpdated && <span>Updated {lastUpdated}</span>}
+            {loading && !lastUpdated && <span>Loading...</span>}
+            {error && <span className="text-ios-red">Connection error</span>}
           </div>
         </div>
-      </section>
+      </div>
 
-      {/* Games */}
-      <main className="mx-auto w-full max-w-3xl flex-1 px-4 py-6">
+      {/* Game list */}
+      <main className="mx-auto w-full max-w-lg flex-1 px-4 py-4">
         {games.length === 0 && !loading && (
-          <div className="text-center py-20">
-            <p className="text-2xl">🏀</p>
-            <p className="mt-2 text-pending">
-              No tournament games found yet.
-              <br />
-              <span className="text-xs">Make sure your <code className="text-accent">ODDS_API_KEY</code> is set in <code className="text-accent">.env.local</code></span>
+          <div className="text-center py-24">
+            <p className="text-[32px]">🏀</p>
+            <p className="mt-3 text-[15px] text-secondary">No games found</p>
+            <p className="mt-1 text-[13px] text-tertiary">
+              Check that your API key is configured
             </p>
           </div>
         )}
 
-        {sections.map(({ label, emoji, games: sectionGames }) => (
-          <section key={label} className="mb-8">
-            <h2 className="mb-3 flex items-center gap-2 text-sm font-bold uppercase tracking-widest text-pending">
-              <span className="h-px flex-1 bg-card-border" />
-              {emoji} {label}
-              <span className="text-accent font-mono text-xs font-normal normal-case">
+        {sections.map(({ label, games: sectionGames }) => (
+          <section key={label} className="mb-5">
+            <div className="flex items-center justify-between px-1 mb-2">
+              <h2 className="text-[13px] font-semibold text-secondary uppercase tracking-wide">
+                {label}
+              </h2>
+              <span className="text-[13px] font-medium text-tertiary tabular-nums">
                 {sectionGames.length}
               </span>
-              <span className="h-px flex-1 bg-card-border" />
-            </h2>
-            <div className="flex flex-col gap-3">
+            </div>
+            <div className="flex flex-col gap-2.5">
               {sectionGames.map((game, i) => (
                 <GameCard key={game.id} game={game} index={i} />
               ))}

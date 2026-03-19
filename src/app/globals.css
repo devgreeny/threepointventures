@@ -1,59 +1,64 @@
 @import "tailwindcss";
 
 :root {
-  --background: #0b0f1a;
-  --foreground: #e8ecf4;
-  --card: #111827;
-  --card-border: #1e293b;
-  --accent: #f97316;
-  --accent-2: #fb923c;
-  --win: #22c55e;
-  --loss: #ef4444;
-  --pending: #64748b;
-  --live: #eab308;
+  --background: #f2f2f7;
+  --foreground: #000000;
+  --secondary: #8e8e93;
+  --tertiary: #aeaeb2;
+  --separator: rgba(60, 60, 67, 0.12);
+  --card: #ffffff;
+  --card-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.04), 0 1px 3px rgba(0, 0, 0, 0.06);
+  --card-shadow-elevated: 0 0 0 0.5px rgba(0, 0, 0, 0.04), 0 2px 8px rgba(0, 0, 0, 0.08);
+  --blue: #007aff;
+  --green: #34c759;
+  --red: #ff3b30;
+  --orange: #ff9500;
+  --label-bg: rgba(120, 120, 128, 0.12);
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
+  --color-secondary: var(--secondary);
+  --color-tertiary: var(--tertiary);
+  --color-separator: var(--separator);
   --color-card: var(--card);
-  --color-card-border: var(--card-border);
-  --color-accent: var(--accent);
-  --color-accent-2: var(--accent-2);
-  --color-win: var(--win);
-  --color-loss: var(--loss);
-  --color-pending: var(--pending);
-  --color-live: var(--live);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --color-ios-blue: var(--blue);
+  --color-ios-green: var(--green);
+  --color-ios-red: var(--red);
+  --color-ios-orange: var(--orange);
+  --color-label-bg: var(--label-bg);
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: var(--font-sans, system-ui, sans-serif);
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
 }
 
 @keyframes pulse-live {
   0%, 100% { opacity: 1; }
-  50% { opacity: 0.4; }
+  50% { opacity: 0.3; }
 }
 
 .animate-pulse-live {
-  animation: pulse-live 1.5s ease-in-out infinite;
+  animation: pulse-live 1.8s ease-in-out infinite;
 }
 
-@keyframes slide-up {
-  from {
-    opacity: 0;
-    transform: translateY(12px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
+@keyframes fade-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
-.animate-slide-up {
-  animation: slide-up 0.4s ease-out both;
+.animate-fade-in {
+  animation: fade-in 0.35s ease-out both;
+}
+
+.shadow-card {
+  box-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.04), 0 1px 3px rgba(0, 0, 0, 0.06);
+}
+
+.shadow-card-elevated {
+  box-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.04), 0 2px 8px rgba(0, 0, 0, 0.08);
 }

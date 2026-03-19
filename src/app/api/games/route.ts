@@ -43,54 +43,131 @@ interface ESPNCompetitor {
   curatedRank?: { current: number };
 }
 
-// 2025 NCAA Tournament seeds — static fallback when ESPN data is unavailable
-const SEEDS: Record<string, number> = {
-  // East
-  "Duke": 1, "Alabama": 2, "Wisconsin": 3, "Arizona": 4,
-  "Oregon": 5, "BYU": 6, "Saint Mary's": 7, "UConn": 8,
-  "Oklahoma": 9, "Vanderbilt": 10, "VCU": 11, "Liberty": 12,
-  "Akron": 13, "Montana": 14, "Robert Morris": 15,
-  // West
-  "Florida": 1, "St. John's": 2, "Texas Tech": 3, "Maryland": 4,
-  "Memphis": 5, "Missouri": 6, "Kansas": 7, "UCLA": 8,
-  "UC San Diego": 9, "Arkansas": 10, "Drake": 11, "Colorado State": 12,
-  "Grand Canyon": 13, "UNC Wilmington": 14, "Omaha": 15, "Norfolk State": 16,
-  // South
-  "Auburn": 1, "Michigan State": 2, "Iowa State": 3, "Texas A&M": 4,
-  "Michigan": 5, "Ole Miss": 6, "Marquette": 7, "Louisville": 8,
-  "Creighton": 9, "New Mexico": 10, "San Diego State": 11, "UC Irvine": 12,
-  "Yale": 13, "Lipscomb": 14, "Bryant": 15,
-  // Midwest
-  "Houston": 1, "Tennessee": 2, "Kentucky": 3, "Purdue": 4,
-  "Clemson": 5, "Illinois": 6, "Gonzaga": 7, "Mississippi State": 8,
-  "Boise State": 9, "Georgia": 10, "McNeese": 11, "High Point": 13,
-  "Troy": 14, "Winthrop": 15, "SIU Edwardsville": 16,
-  // First Four / Play-in
-  "North Carolina": 11, "Xavier": 11, "Texas": 11,
-  "Alabama State": 16, "Saint Francis": 16,
-  "American": 16, "Mount St. Mary's": 16,
-  // Common alternate names
-  "San Diego St": 11, "McNeese State": 11,
-  "St. John's (NY)": 2, "UNC-Wilmington": 14,
-  "Colorado St": 12, "Mississippi St": 8,
-  "Boise St": 9, "Norfolk St": 16,
-  "Iowa St": 3, "Michigan St": 2,
-  "Alabama St": 16, "Mt St Mary's": 16,
-  "UCSD": 9, "GCU": 13, "SIUE": 16,
-};
+// ── Official 2026 NCAA Tournament Field (68 teams) ──
+// Each entry: canonical name, seed, and alternate names used by Odds API / ESPN
+
+interface TournamentTeam {
+  name: string;
+  seed: number;
+  rank: number; // AP/committee ranking (1-68)
+  aliases: string[];
+}
+
+const TOURNAMENT_FIELD: TournamentTeam[] = [
+  // 1-seeds
+  { name: "Duke", seed: 1, rank: 1, aliases: ["Duke Blue Devils"] },
+  { name: "Arizona", seed: 1, rank: 2, aliases: ["Arizona Wildcats"] },
+  { name: "Michigan", seed: 1, rank: 3, aliases: ["Michigan Wolverines"] },
+  { name: "Florida", seed: 1, rank: 4, aliases: ["Florida Gators"] },
+  // 2-seeds
+  { name: "Houston", seed: 2, rank: 5, aliases: ["Houston Cougars"] },
+  { name: "UConn", seed: 2, rank: 6, aliases: ["UConn Huskies", "Connecticut Huskies", "Connecticut"] },
+  { name: "Iowa State", seed: 2, rank: 7, aliases: ["Iowa State Cyclones", "Iowa St"] },
+  { name: "Purdue", seed: 2, rank: 8, aliases: ["Purdue Boilermakers"] },
+  // 3-seeds
+  { name: "Michigan State", seed: 3, rank: 9, aliases: ["Michigan St Spartans", "Michigan St", "Michigan State Spartans"] },
+  { name: "Illinois", seed: 3, rank: 10, aliases: ["Illinois Fighting Illini"] },
+  { name: "Gonzaga", seed: 3, rank: 11, aliases: ["Gonzaga Bulldogs"] },
+  { name: "Virginia", seed: 3, rank: 12, aliases: ["Virginia Cavaliers"] },
+  // 4-seeds
+  { name: "Nebraska", seed: 4, rank: 13, aliases: ["Nebraska Cornhuskers"] },
+  { name: "Alabama", seed: 4, rank: 14, aliases: ["Alabama Crimson Tide"] },
+  { name: "Kansas", seed: 4, rank: 15, aliases: ["Kansas Jayhawks"] },
+  { name: "Arkansas", seed: 4, rank: 16, aliases: ["Arkansas Razorbacks"] },
+  // 5-seeds
+  { name: "Vanderbilt", seed: 5, rank: 17, aliases: ["Vanderbilt Commodores"] },
+  { name: "St. John's", seed: 5, rank: 18, aliases: ["St. John's Red Storm", "St. John's (NY)", "Saint Johns", "St Johns"] },
+  { name: "Texas Tech", seed: 5, rank: 19, aliases: ["Texas Tech Red Raiders"] },
+  { name: "Wisconsin", seed: 5, rank: 20, aliases: ["Wisconsin Badgers"] },
+  // 6-seeds
+  { name: "Tennessee", seed: 6, rank: 21, aliases: ["Tennessee Volunteers"] },
+  { name: "North Carolina", seed: 6, rank: 22, aliases: ["North Carolina Tar Heels", "UNC"] },
+  { name: "Louisville", seed: 6, rank: 23, aliases: ["Louisville Cardinals"] },
+  { name: "BYU", seed: 6, rank: 24, aliases: ["BYU Cougars", "Brigham Young"] },
+  // 7-seeds
+  { name: "Kentucky", seed: 7, rank: 25, aliases: ["Kentucky Wildcats"] },
+  { name: "Saint Mary's", seed: 7, rank: 26, aliases: ["Saint Mary's Gaels", "Saint Mary's (CA)", "St. Mary's"] },
+  { name: "Miami", seed: 7, rank: 27, aliases: ["Miami Hurricanes", "Miami (FL)"] },
+  { name: "UCLA", seed: 7, rank: 28, aliases: ["UCLA Bruins"] },
+  // 8-seeds
+  { name: "Clemson", seed: 8, rank: 29, aliases: ["Clemson Tigers"] },
+  { name: "Villanova", seed: 8, rank: 30, aliases: ["Villanova Wildcats"] },
+  { name: "Ohio State", seed: 8, rank: 31, aliases: ["Ohio State Buckeyes", "Ohio St"] },
+  { name: "Georgia", seed: 8, rank: 32, aliases: ["Georgia Bulldogs"] },
+  // 9-seeds
+  { name: "Utah State", seed: 9, rank: 33, aliases: ["Utah State Aggies", "Utah St"] },
+  { name: "TCU", seed: 9, rank: 34, aliases: ["TCU Horned Frogs"] },
+  { name: "Saint Louis", seed: 9, rank: 35, aliases: ["Saint Louis Billikens", "St. Louis"] },
+  { name: "Iowa", seed: 9, rank: 36, aliases: ["Iowa Hawkeyes"] },
+  // 10-seeds
+  { name: "Santa Clara", seed: 10, rank: 37, aliases: ["Santa Clara Broncos"] },
+  { name: "UCF", seed: 10, rank: 38, aliases: ["UCF Knights"] },
+  { name: "Missouri", seed: 10, rank: 39, aliases: ["Missouri Tigers"] },
+  { name: "Texas A&M", seed: 10, rank: 40, aliases: ["Texas A&M Aggies", "Texas AM"] },
+  // 11-seeds (includes First Four play-in teams)
+  { name: "NC State", seed: 11, rank: 41, aliases: ["NC State Wolfpack", "North Carolina State"] },
+  { name: "Texas", seed: 11, rank: 42, aliases: ["Texas Longhorns"] },
+  { name: "SMU", seed: 11, rank: 43, aliases: ["SMU Mustangs"] },
+  { name: "Miami (OH)", seed: 11, rank: 44, aliases: ["Miami (OH) RedHawks", "Miami Ohio", "Miami RedHawks"] },
+  { name: "VCU", seed: 11, rank: 45, aliases: ["VCU Rams"] },
+  { name: "South Florida", seed: 11, rank: 46, aliases: ["South Florida Bulls", "USF", "USF Bulls"] },
+  // 12-seeds
+  { name: "McNeese", seed: 12, rank: 47, aliases: ["McNeese Cowboys", "McNeese State", "McNeese St"] },
+  { name: "Akron", seed: 12, rank: 48, aliases: ["Akron Zips"] },
+  { name: "Northern Iowa", seed: 12, rank: 49, aliases: ["Northern Iowa Panthers", "UNI"] },
+  { name: "High Point", seed: 12, rank: 50, aliases: ["High Point Panthers"] },
+  // 13-seeds
+  { name: "California Baptist", seed: 13, rank: 51, aliases: ["Cal Baptist Lancers", "Cal Baptist", "CBU"] },
+  { name: "Hofstra", seed: 13, rank: 52, aliases: ["Hofstra Pride"] },
+  { name: "Troy", seed: 13, rank: 53, aliases: ["Troy Trojans"] },
+  { name: "Hawai'i", seed: 13, rank: 54, aliases: ["Hawai'i Rainbow Warriors", "Hawaii Rainbow Warriors", "Hawaii"] },
+  // 14-seeds
+  { name: "North Dakota State", seed: 14, rank: 55, aliases: ["North Dakota St Bison", "North Dakota St", "NDSU"] },
+  { name: "Penn", seed: 14, rank: 56, aliases: ["Pennsylvania Quakers", "Pennsylvania"] },
+  { name: "Wright State", seed: 14, rank: 57, aliases: ["Wright St Raiders", "Wright St"] },
+  { name: "Kennesaw State", seed: 14, rank: 58, aliases: ["Kennesaw St Owls", "Kennesaw St"] },
+  // 15-seeds
+  { name: "Tennessee State", seed: 15, rank: 59, aliases: ["Tennessee St Tigers", "Tennessee St"] },
+  { name: "Idaho", seed: 15, rank: 60, aliases: ["Idaho Vandals"] },
+  { name: "Furman", seed: 15, rank: 61, aliases: ["Furman Paladins"] },
+  { name: "Queens", seed: 15, rank: 62, aliases: ["Queens University Royals", "Queens (NC)", "Queens University"] },
+  // 16-seeds (includes First Four play-in teams)
+  { name: "Siena", seed: 16, rank: 63, aliases: ["Siena Saints"] },
+  { name: "LIU", seed: 16, rank: 64, aliases: ["LIU Sharks", "Long Island", "Long Island University Sharks"] },
+  { name: "Howard", seed: 16, rank: 65, aliases: ["Howard Bison"] },
+  { name: "UMBC", seed: 16, rank: 66, aliases: ["UMBC Retrievers"] },
+  { name: "Lehigh", seed: 16, rank: 67, aliases: ["Lehigh Mountain Hawks"] },
+  { name: "Prairie View", seed: 16, rank: 68, aliases: ["Prairie View Panthers", "Prairie View A&M", "Prairie View A&M Panthers"] },
+];
+
+// Build lookup structures from the tournament field
+const _seedMap = new Map<string, number>();
+const _teamLookup = new Map<string, TournamentTeam>();
+
+for (const team of TOURNAMENT_FIELD) {
+  const allNames = [team.name, ...team.aliases];
+  for (const name of allNames) {
+    _seedMap.set(normalize(name), team.seed);
+    _teamLookup.set(normalize(name), team);
+  }
+}
 
 function lookupSeed(teamName: string): number | undefined {
-  // Direct match
-  if (SEEDS[teamName] !== undefined) return SEEDS[teamName];
-
-  // Normalized match
   const norm = normalize(teamName);
-  for (const [key, seed] of Object.entries(SEEDS)) {
-    if (normalize(key) === norm) return seed;
-    if (norm.includes(normalize(key)) || normalize(key).includes(norm)) return seed;
+  if (_seedMap.has(norm)) return _seedMap.get(norm);
+  for (const [key, seed] of _seedMap) {
+    if (norm.includes(key) || key.includes(norm)) return seed;
   }
-
   return undefined;
+}
+
+function isTournamentTeam(teamName: string): boolean {
+  const norm = normalize(teamName);
+  if (_teamLookup.has(norm)) return true;
+  for (const key of _teamLookup.keys()) {
+    if (norm.includes(key) || key.includes(norm)) return true;
+  }
+  return false;
 }
 
 interface ESPNCompetition {
@@ -134,6 +211,7 @@ export interface ApiGame {
   period?: number;
   espnId?: string;
   underdogWinPct?: number; // 0-100, live win probability for the underdog
+  oddsSource?: string; // e.g. "DraftKings"
 }
 
 export interface GamesResponse {
@@ -197,25 +275,107 @@ function teamsMatch(a: string, b: string): boolean {
   return false;
 }
 
-// ── Fetch odds from The Odds API ──
+// ── Pregame odds cache — lock in odds once captured, never overwrite with live lines ──
 
-async function fetchOdds(): Promise<{ events: OddsEvent[]; remaining?: number }> {
-  const apiKey = process.env.ODDS_API_KEY;
-  if (!apiKey || apiKey === "YOUR_KEY_HERE") {
-    return { events: [] };
+interface CachedOdds {
+  favoriteOdds: number;
+  underdogOdds: number;
+  favoriteName: string;
+  underdogName: string;
+  oddsSource: string;
+}
+
+const oddsCache = new Map<string, CachedOdds>();
+
+function cacheOdds(gameKey: string, data: CachedOdds) {
+  if (!oddsCache.has(gameKey) && data.underdogOdds !== 0) {
+    oddsCache.set(gameKey, data);
+  }
+}
+
+function getCachedOdds(gameKey: string): CachedOdds | undefined {
+  return oddsCache.get(gameKey);
+}
+
+function makeGameKey(team1: string, team2: string): string {
+  return [normalize(team1), normalize(team2)].sort().join("||");
+}
+
+// ── Filtering rules ──
+
+function isFirstFour(favSeed?: number, dogSeed?: number): boolean {
+  if (!favSeed || !dogSeed) return false;
+  return favSeed === dogSeed;
+}
+
+function isOneVsSixteen(favSeed?: number, dogSeed?: number): boolean {
+  if (!favSeed || !dogSeed) return false;
+  return (favSeed === 1 && dogSeed === 16) || (favSeed === 16 && dogSeed === 1);
+}
+
+// ── Daily odds cache — fetch once per day at 11am ET, serve from cache otherwise ──
+
+interface DailyOddsCache {
+  events: OddsEvent[];
+  remaining?: number;
+  fetchedAt: number; // epoch ms
+}
+
+let dailyOddsCache: DailyOddsCache | null = null;
+
+function shouldRefreshOdds(): boolean {
+  const now = new Date();
+  const et = new Date(now.toLocaleString("en-US", { timeZone: "America/New_York" }));
+  const todayRefreshTime = new Date(et);
+  todayRefreshTime.setHours(11, 0, 0, 0);
+
+  if (!dailyOddsCache) return true;
+
+  const cachedDate = new Date(
+    new Date(dailyOddsCache.fetchedAt).toLocaleString("en-US", { timeZone: "America/New_York" })
+  );
+
+  // If it's past 11am ET and cache is from before 11am ET today, refresh
+  if (et >= todayRefreshTime) {
+    const cacheRefreshTime = new Date(cachedDate);
+    cacheRefreshTime.setHours(11, 0, 0, 0);
+    return cachedDate < cacheRefreshTime || cachedDate.toDateString() !== et.toDateString();
   }
 
-  const url = `${ODDS_API}/odds?apiKey=${apiKey}&regions=us&markets=h2h&oddsFormat=american`;
-  const res = await fetch(url, { next: { revalidate: 300 } }); // cache 5 min to save quota
+  // Before 11am — use cache if it exists from yesterday's 11am refresh
+  return false;
+}
+
+async function fetchOdds(): Promise<{ events: OddsEvent[]; remaining?: number }> {
+  if (!shouldRefreshOdds() && dailyOddsCache) {
+    return { events: dailyOddsCache.events, remaining: dailyOddsCache.remaining };
+  }
+
+  const apiKey = process.env.ODDS_API_KEY;
+  if (!apiKey || apiKey === "YOUR_KEY_HERE") {
+    return { events: dailyOddsCache?.events ?? [], remaining: dailyOddsCache?.remaining };
+  }
+
+  const url = `${ODDS_API}/odds?apiKey=${apiKey}&regions=us&markets=h2h&oddsFormat=american&bookmakers=draftkings`;
+  const res = await fetch(url, { cache: "no-store" });
 
   if (!res.ok) {
     console.error("Odds API error:", res.status, await res.text());
-    return { events: [] };
+    return { events: dailyOddsCache?.events ?? [], remaining: dailyOddsCache?.remaining };
   }
 
   const remaining = res.headers.get("x-requests-remaining");
   const data: OddsEvent[] = await res.json();
-  return { events: data, remaining: remaining ? parseInt(remaining) : undefined };
+
+  dailyOddsCache = {
+    events: data,
+    remaining: remaining ? parseInt(remaining) : undefined,
+    fetchedAt: Date.now(),
+  };
+
+  console.log(`[Odds API] Refreshed at ${new Date().toISOString()} — ${remaining} credits remaining`);
+
+  return { events: data, remaining: dailyOddsCache.remaining };
 }
 
 // ── Fetch live scores from ESPN ──
@@ -257,12 +417,14 @@ async function fetchESPN(): Promise<ESPNEvent[]> {
 // ── Build a game from Odds API event, enriched with ESPN scores ──
 
 function buildGame(oddsEvent: OddsEvent, espnEvents: ESPNEvent[]): ApiGame {
-  // Get consensus odds — prefer DraftKings, FanDuel, then first available
-  const preferredBooks = ["draftkings", "fanduel", "betmgm", "pointsbetus"];
-  let bookmaker = oddsEvent.bookmakers.find((b) =>
-    preferredBooks.includes(b.key)
-  );
+  const gameKey = makeGameKey(oddsEvent.home_team, oddsEvent.away_team);
+
+  // DraftKings odds only, fall back to FanDuel → BetMGM if DK unavailable
+  let bookmaker = oddsEvent.bookmakers.find((b) => b.key === "draftkings");
+  if (!bookmaker) bookmaker = oddsEvent.bookmakers.find((b) => b.key === "fanduel");
+  if (!bookmaker) bookmaker = oddsEvent.bookmakers.find((b) => b.key === "betmgm");
   if (!bookmaker) bookmaker = oddsEvent.bookmakers[0];
+  const oddsSource = bookmaker?.title ?? "";
 
   const h2h = bookmaker?.markets.find((m) => m.key === "h2h");
   const homeOutcome = h2h?.outcomes.find((o) => o.name === oddsEvent.home_team);
@@ -271,19 +433,44 @@ function buildGame(oddsEvent: OddsEvent, espnEvents: ESPNEvent[]): ApiGame {
   const homeOdds = homeOutcome?.price ?? 0;
   const awayOdds = awayOutcome?.price ?? 0;
 
-  // The underdog has the higher (more positive) American odds
-  const homeIsUnderdog = homeOdds > awayOdds;
+  // Determine seeds — use static lookup first (always available), ESPN will enrich later
+  const homeSeed = lookupSeed(oddsEvent.home_team);
+  const awaySeed = lookupSeed(oddsEvent.away_team);
 
-  const favorite = {
-    name: homeIsUnderdog ? oddsEvent.away_team : oddsEvent.home_team,
-    odds: homeIsUnderdog ? awayOdds : homeOdds,
-  };
-  const underdog = {
-    name: homeIsUnderdog ? oddsEvent.home_team : oddsEvent.away_team,
-    odds: homeIsUnderdog ? homeOdds : awayOdds,
+  // Our pick = higher seed number (the bracket underdog). Always.
+  // If seeds are equal (First Four), fall back to higher moneyline odds.
+  const homeIsOurPick = (homeSeed ?? 0) > (awaySeed ?? 0)
+    || ((homeSeed ?? 0) === (awaySeed ?? 0) && homeOdds > awayOdds);
+
+  const opponentName = homeIsOurPick ? oddsEvent.away_team : oddsEvent.home_team;
+  const ourPickName = homeIsOurPick ? oddsEvent.home_team : oddsEvent.away_team;
+  const opponentOdds = homeIsOurPick ? awayOdds : homeOdds;
+  const ourPickOdds = homeIsOurPick ? homeOdds : awayOdds;
+
+  // Cache pregame odds — lock in on first sight, never overwrite
+  const cached = getCachedOdds(gameKey);
+  if (!cached && ourPickOdds !== 0) {
+    cacheOdds(gameKey, {
+      favoriteOdds: opponentOdds,
+      underdogOdds: ourPickOdds,
+      favoriteName: opponentName,
+      underdogName: ourPickName,
+      oddsSource,
+    });
+  }
+
+  const locked = cached ?? {
+    favoriteOdds: opponentOdds,
+    underdogOdds: ourPickOdds,
+    favoriteName: opponentName,
+    underdogName: ourPickName,
+    oddsSource,
   };
 
-  // Try to match with ESPN for live scores + seeds
+  const favorite = { name: locked.favoriteName, odds: locked.favoriteOdds };
+  const underdog = { name: locked.underdogName, odds: locked.underdogOdds };
+
+  // Match with ESPN for live scores + seeds
   let status: ApiGame["status"] = "upcoming";
   let result: ApiGame["result"] = "pending";
   let clock: string | undefined;
@@ -303,7 +490,7 @@ function buildGame(oddsEvent: OddsEvent, espnEvents: ESPNEvent[]): ApiGame {
     const matchesFav = espnTeams.some((t) => teamsMatch(t, favorite.name));
     const matchesDog = espnTeams.some((t) => teamsMatch(t, underdog.name));
 
-    if (matchesFav || matchesDog) {
+    if (matchesFav && matchesDog) {
       espnId = espn.id;
 
       const favComp = comp.competitors.find((c) =>
@@ -342,7 +529,6 @@ function buildGame(oddsEvent: OddsEvent, espnEvents: ESPNEvent[]): ApiGame {
     }
   }
 
-  // Fall back to static seed map if ESPN didn't provide seeds
   if (!favSeed) favSeed = lookupSeed(favorite.name);
   if (!dogSeed) dogSeed = lookupSeed(underdog.name);
 
@@ -358,6 +544,7 @@ function buildGame(oddsEvent: OddsEvent, espnEvents: ESPNEvent[]): ApiGame {
     clock,
     period,
     espnId,
+    oddsSource: locked.oddsSource,
     _dogIsHome: dogIsHome,
   } as ApiGame & { _dogIsHome?: boolean };
 }
@@ -456,9 +643,14 @@ export async function GET() {
       fetchESPN(),
     ]);
 
-    const oddsGames = oddsResult.events.map((e) => buildGame(e, espnEvents)) as GameWithMeta[];
+    // Only keep Odds API events where BOTH teams are in the tournament field
+    const tournamentOddsEvents = oddsResult.events.filter((e) =>
+      isTournamentTeam(e.home_team) && isTournamentTeam(e.away_team)
+    );
 
-    // Find ESPN games not covered by odds (already tipped off or finished)
+    const oddsGames = tournamentOddsEvents.map((e) => buildGame(e, espnEvents)) as GameWithMeta[];
+
+    // Find ESPN tournament games not covered by odds (already tipped off or finished)
     const coveredTeams = new Set(
       oddsGames.flatMap((g) => [normalize(g.home_team), normalize(g.away_team)])
     );
@@ -467,11 +659,13 @@ export async function GET() {
     for (const espn of espnEvents) {
       const comp = espn.competitions[0];
       if (!comp) continue;
-      const espnTeams = comp.competitors.map((c) =>
-        normalize(c.team.displayName)
-      );
+      const espnTeams = comp.competitors.map((c) => c.team.displayName);
+
+      // Both teams must be in the tournament field
+      if (!espnTeams.every((t) => isTournamentTeam(t))) continue;
+
       const alreadyCovered = espnTeams.some((t) =>
-        [...coveredTeams].some((ct) => teamsMatch(t, ct))
+        [...coveredTeams].some((ct) => teamsMatch(normalize(t), ct))
       );
       if (!alreadyCovered) {
         const game = buildGameFromESPN(espn);
@@ -479,7 +673,16 @@ export async function GET() {
       }
     }
 
-    const allGamesRaw = [...oddsGames, ...extraGames];
+    const allGamesUnfiltered = [...oddsGames, ...extraGames];
+
+    // Filter out: 1 vs 16 matchups and First Four (same-seed play-in) games
+    const allGamesRaw = allGamesUnfiltered.filter((g) => {
+      const favSeed = g.favorite.seed;
+      const dogSeed = g.underdog.seed;
+      if (isOneVsSixteen(favSeed, dogSeed)) return false;
+      if (isFirstFour(favSeed, dogSeed)) return false;
+      return true;
+    });
 
     // Fetch win probability for live games (parallel, up to 8 at once)
     const liveGames = allGamesRaw.filter((g) => g.status === "live" && g.espnId);
