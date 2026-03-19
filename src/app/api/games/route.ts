@@ -38,6 +38,57 @@ interface ESPNCompetitor {
   score: string;
   homeAway: string;
   winner?: boolean;
+  curatedRank?: { current: number };
+}
+
+// 2025 NCAA Tournament seeds — static fallback when ESPN data is unavailable
+const SEEDS: Record<string, number> = {
+  // East
+  "Duke": 1, "Alabama": 2, "Wisconsin": 3, "Arizona": 4,
+  "Oregon": 5, "BYU": 6, "Saint Mary's": 7, "UConn": 8,
+  "Oklahoma": 9, "Vanderbilt": 10, "VCU": 11, "Liberty": 12,
+  "Akron": 13, "Montana": 14, "Robert Morris": 15,
+  // West
+  "Florida": 1, "St. John's": 2, "Texas Tech": 3, "Maryland": 4,
+  "Memphis": 5, "Missouri": 6, "Kansas": 7, "UCLA": 8,
+  "UC San Diego": 9, "Arkansas": 10, "Drake": 11, "Colorado State": 12,
+  "Grand Canyon": 13, "UNC Wilmington": 14, "Omaha": 15, "Norfolk State": 16,
+  // South
+  "Auburn": 1, "Michigan State": 2, "Iowa State": 3, "Texas A&M": 4,
+  "Michigan": 5, "Ole Miss": 6, "Marquette": 7, "Louisville": 8,
+  "Creighton": 9, "New Mexico": 10, "San Diego State": 11, "UC Irvine": 12,
+  "Yale": 13, "Lipscomb": 14, "Bryant": 15,
+  // Midwest
+  "Houston": 1, "Tennessee": 2, "Kentucky": 3, "Purdue": 4,
+  "Clemson": 5, "Illinois": 6, "Gonzaga": 7, "Mississippi State": 8,
+  "Boise State": 9, "Georgia": 10, "McNeese": 11, "High Point": 13,
+  "Troy": 14, "Winthrop": 15, "SIU Edwardsville": 16,
+  // First Four / Play-in
+  "North Carolina": 11, "Xavier": 11, "Texas": 11,
+  "Alabama State": 16, "Saint Francis": 16,
+  "American": 16, "Mount St. Mary's": 16,
+  // Common alternate names
+  "San Diego St": 11, "McNeese State": 11,
+  "St. John's (NY)": 2, "UNC-Wilmington": 14,
+  "Colorado St": 12, "Mississippi St": 8,
+  "Boise St": 9, "Norfolk St": 16,
+  "Iowa St": 3, "Michigan St": 2,
+  "Alabama St": 16, "Mt St Mary's": 16,
+  "UCSD": 9, "GCU": 13, "SIUE": 16,
+};
+
+function lookupSeed(teamName: string): number | undefined {
+  // Direct match
+  if (SEEDS[teamName] !== undefined) return SEEDS[teamName];
+
+  // Normalized match
+  const norm = normalize(teamName);
+  for (const [key, seed] of Object.entries(SEEDS)) {
+    if (normalize(key) === norm) return seed;
+    if (norm.includes(normalize(key)) || normalize(key).includes(norm)) return seed;
+  }
+
+  return undefined;
 }
 
 interface ESPNCompetition {
@@ -67,11 +118,13 @@ export interface ApiGame {
     name: string;
     odds: number;
     score?: number;
+    seed?: number;
   };
   underdog: {
     name: string;
     odds: number;
     score?: number;
+    seed?: number;
   };
   status: "upcoming" | "live" | "final";
   result: "win" | "loss" | "push" | "pending";
@@ -226,13 +279,15 @@ function buildGame(oddsEvent: OddsEvent, espnEvents: ESPNEvent[]): ApiGame {
     odds: homeIsUnderdog ? homeOdds : awayOdds,
   };
 
-  // Try to match with ESPN for live scores
+  // Try to match with ESPN for live scores + seeds
   let status: ApiGame["status"] = "upcoming";
   let result: ApiGame["result"] = "pending";
   let clock: string | undefined;
   let period: number | undefined;
   let favScore: number | undefined;
   let dogScore: number | undefined;
+  let favSeed: number | undefined;
+  let dogSeed: number | undefined;
 
   for (const espn of espnEvents) {
     const comp = espn.competitions[0];
@@ -252,8 +307,14 @@ function buildGame(oddsEvent: OddsEvent, espnEvents: ESPNEvent[]): ApiGame {
         teamsMatch(c.team.shortDisplayName, underdog.name)
       );
 
-      if (favComp) favScore = parseInt(favComp.score, 10) || undefined;
-      if (dogComp) dogScore = parseInt(dogComp.score, 10) || undefined;
+      if (favComp) {
+        favScore = parseInt(favComp.score, 10) || undefined;
+        if (favComp.curatedRank?.current) favSeed = favComp.curatedRank.current;
+      }
+      if (dogComp) {
+        dogScore = parseInt(dogComp.score, 10) || undefined;
+        if (dogComp.curatedRank?.current) dogSeed = dogComp.curatedRank.current;
+      }
 
       if (comp.status.type.completed) {
         status = "final";
@@ -272,13 +333,17 @@ function buildGame(oddsEvent: OddsEvent, espnEvents: ESPNEvent[]): ApiGame {
     }
   }
 
+  // Fall back to static seed map if ESPN didn't provide seeds
+  if (!favSeed) favSeed = lookupSeed(favorite.name);
+  if (!dogSeed) dogSeed = lookupSeed(underdog.name);
+
   return {
     id: oddsEvent.id,
     commence_time: oddsEvent.commence_time,
     home_team: oddsEvent.home_team,
     away_team: oddsEvent.away_team,
-    favorite: { ...favorite, score: favScore },
-    underdog: { ...underdog, score: dogScore },
+    favorite: { ...favorite, score: favScore, seed: favSeed },
+    underdog: { ...underdog, score: dogScore, seed: dogSeed },
     status,
     result,
     clock,
@@ -293,20 +358,31 @@ function buildGameFromESPN(espn: ESPNEvent): ApiGame | null {
   if (!comp || comp.competitors.length < 2) return null;
 
   const teams = comp.competitors;
-  // Without odds data, we can't reliably identify the underdog
-  // Use home/away as a rough proxy — away team is often the lower seed in tournament
   const home = teams.find((t) => t.homeAway === "home") || teams[0];
   const away = teams.find((t) => t.homeAway === "away") || teams[1];
+
+  // Try to determine favorite/underdog by seed (higher seed = underdog)
+  const homeSeed = home.curatedRank?.current ?? lookupSeed(home.team.displayName);
+  const awaySeed = away.curatedRank?.current ?? lookupSeed(away.team.displayName);
+
+  // Higher seed number = underdog in the tournament
+  const homeIsUnderdog = (homeSeed ?? 99) > (awaySeed ?? 99);
+  const fav = homeIsUnderdog ? away : home;
+  const dog = homeIsUnderdog ? home : away;
+  const favSeed = homeIsUnderdog ? awaySeed : homeSeed;
+  const dogSeed = homeIsUnderdog ? homeSeed : awaySeed;
 
   let status: ApiGame["status"] = "upcoming";
   let result: ApiGame["result"] = "pending";
 
-  const homeScore = parseInt(home.score, 10) || undefined;
-  const awayScore = parseInt(away.score, 10) || undefined;
+  const favScore = parseInt(fav.score, 10) || undefined;
+  const dogScore = parseInt(dog.score, 10) || undefined;
 
   if (comp.status.type.completed) {
     status = "final";
-    // Without odds we don't know who the underdog is, so no result
+    if (dogScore !== undefined && favScore !== undefined) {
+      result = dogScore > favScore ? "win" : dogScore < favScore ? "loss" : "push";
+    }
   } else if (
     comp.status.type.name === "STATUS_IN_PROGRESS" ||
     comp.status.type.name === "STATUS_HALFTIME"
@@ -319,8 +395,8 @@ function buildGameFromESPN(espn: ESPNEvent): ApiGame | null {
     commence_time: "",
     home_team: home.team.displayName,
     away_team: away.team.displayName,
-    favorite: { name: home.team.displayName, odds: 0, score: homeScore },
-    underdog: { name: away.team.displayName, odds: 0, score: awayScore },
+    favorite: { name: fav.team.displayName, odds: 0, score: favScore, seed: favSeed },
+    underdog: { name: dog.team.displayName, odds: 0, score: dogScore, seed: dogSeed },
     status,
     result,
     clock: comp.status.displayClock,

@@ -126,9 +126,11 @@ function GameCard({ game, index }: { game: ApiGame; index: number }) {
           {/* Favorite */}
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2">
-              <span className="flex h-6 shrink-0 items-center justify-center rounded-md bg-white/5 px-1.5 text-[10px] font-bold text-pending font-mono">
-                {formatOdds(game.favorite.odds)}
-              </span>
+              {game.favorite.seed && (
+                <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-white/5 text-[10px] font-bold text-pending">
+                  {game.favorite.seed}
+                </span>
+              )}
               <span className={`text-sm font-medium truncate ${
                 game.status === "final" && game.result === "win" ? "text-pending/60" : "text-foreground"
               }`}>
@@ -162,9 +164,11 @@ function GameCard({ game, index }: { game: ApiGame; index: number }) {
               }`}>
                 {game.underdog.name}
               </span>
-              <span className="flex h-6 shrink-0 items-center justify-center rounded-md bg-accent/10 px-1.5 text-[10px] font-bold text-accent font-mono">
-                {formatOdds(game.underdog.odds)}
-              </span>
+              {game.underdog.seed && (
+                <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-accent/10 text-[10px] font-bold text-accent">
+                  {game.underdog.seed}
+                </span>
+              )}
             </div>
           </div>
         </div>
