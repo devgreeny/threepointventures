@@ -173,6 +173,35 @@ function GameCard({ game, index }: { game: ApiGame; index: number }) {
           </div>
         </div>
 
+        {/* Win probability bar — only for live games */}
+        {isLive && game.underdogWinPct !== undefined && (
+          <div className="mt-3">
+            <div className="flex items-center justify-between text-[10px] font-semibold mb-1">
+              <span className="text-pending">
+                {(100 - game.underdogWinPct).toFixed(0)}%
+              </span>
+              <span className="uppercase tracking-wider text-pending/60">Win Prob</span>
+              <span className={game.underdogWinPct >= 50 ? "text-win" : "text-accent"}>
+                {game.underdogWinPct.toFixed(0)}% 🐶
+              </span>
+            </div>
+            <div className="relative h-2 w-full rounded-full bg-white/5 overflow-hidden">
+              {/* Favorite side (left, grey) */}
+              <div
+                className="absolute inset-y-0 left-0 rounded-full bg-pending/30 transition-all duration-700 ease-out"
+                style={{ width: `${100 - game.underdogWinPct}%` }}
+              />
+              {/* Underdog side (right, colored) */}
+              <div
+                className={`absolute inset-y-0 right-0 rounded-full transition-all duration-700 ease-out ${
+                  game.underdogWinPct >= 50 ? "bg-win/60" : "bg-accent/50"
+                }`}
+                style={{ width: `${game.underdogWinPct}%` }}
+              />
+            </div>
+          </div>
+        )}
+
         {/* Bottom: wager + payout */}
         {hasOdds && (
           <div className="mt-2.5 flex items-center justify-between text-xs">

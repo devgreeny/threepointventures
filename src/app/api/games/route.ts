@@ -3,6 +3,8 @@ import { NextResponse } from "next/server";
 const ODDS_API = "https://api.the-odds-api.com/v4/sports/basketball_ncaab";
 const ESPN_API =
   "https://site.api.espn.com/apis/site/v2/sports/basketball/mens-college-basketball/scoreboard";
+const ESPN_SUMMARY =
+  "https://site.api.espn.com/apis/site/v2/sports/basketball/mens-college-basketball/summary";
 
 // ── Odds API types ──
 
@@ -130,6 +132,8 @@ export interface ApiGame {
   result: "win" | "loss" | "push" | "pending";
   clock?: string;
   period?: number;
+  espnId?: string;
+  underdogWinPct?: number; // 0-100, live win probability for the underdog
 }
 
 export interface GamesResponse {
@@ -288,6 +292,8 @@ function buildGame(oddsEvent: OddsEvent, espnEvents: ESPNEvent[]): ApiGame {
   let dogScore: number | undefined;
   let favSeed: number | undefined;
   let dogSeed: number | undefined;
+  let espnId: string | undefined;
+  let dogIsHome = false;
 
   for (const espn of espnEvents) {
     const comp = espn.competitions[0];
@@ -298,6 +304,8 @@ function buildGame(oddsEvent: OddsEvent, espnEvents: ESPNEvent[]): ApiGame {
     const matchesDog = espnTeams.some((t) => teamsMatch(t, underdog.name));
 
     if (matchesFav || matchesDog) {
+      espnId = espn.id;
+
       const favComp = comp.competitors.find((c) =>
         teamsMatch(c.team.displayName, favorite.name) ||
         teamsMatch(c.team.shortDisplayName, favorite.name)
@@ -314,6 +322,7 @@ function buildGame(oddsEvent: OddsEvent, espnEvents: ESPNEvent[]): ApiGame {
       if (dogComp) {
         dogScore = parseInt(dogComp.score, 10) || undefined;
         if (dogComp.curatedRank?.current) dogSeed = dogComp.curatedRank.current;
+        dogIsHome = dogComp.homeAway === "home";
       }
 
       if (comp.status.type.completed) {
@@ -348,7 +357,9 @@ function buildGame(oddsEvent: OddsEvent, espnEvents: ESPNEvent[]): ApiGame {
     result,
     clock,
     period,
-  };
+    espnId,
+    _dogIsHome: dogIsHome,
+  } as ApiGame & { _dogIsHome?: boolean };
 }
 
 // ── Also build games from ESPN that have no odds (already started / finished) ──
@@ -401,10 +412,42 @@ function buildGameFromESPN(espn: ESPNEvent): ApiGame | null {
     result,
     clock: comp.status.displayClock,
     period: comp.status.period,
-  };
+    espnId: espn.id,
+    _dogIsHome: dog === home,
+  } as ApiGame & { _dogIsHome?: boolean };
+}
+
+// ── Fetch win probability from ESPN summary endpoint ──
+
+interface WinProbEntry {
+  homeWinPercentage: number;
+  // playId, secondsLeft, etc. also exist but we only need the latest
+}
+
+async function fetchWinProbability(espnId: string): Promise<{ homeWinPct: number; awayWinPct: number } | null> {
+  try {
+    const url = `${ESPN_SUMMARY}?event=${espnId}`;
+    const res = await fetch(url, { next: { revalidate: 30 } });
+    if (!res.ok) return null;
+    const data = await res.json();
+
+    const wp: WinProbEntry[] = data.winprobability;
+    if (!wp || wp.length === 0) return null;
+
+    // Last entry is the most current
+    const latest = wp[wp.length - 1];
+    return {
+      homeWinPct: latest.homeWinPercentage * 100,
+      awayWinPct: (1 - latest.homeWinPercentage) * 100,
+    };
+  } catch {
+    return null;
+  }
 }
 
 // ── Main handler ──
+
+type GameWithMeta = ApiGame & { _dogIsHome?: boolean };
 
 export async function GET() {
   try {
@@ -413,14 +456,14 @@ export async function GET() {
       fetchESPN(),
     ]);
 
-    const oddsGames = oddsResult.events.map((e) => buildGame(e, espnEvents));
+    const oddsGames = oddsResult.events.map((e) => buildGame(e, espnEvents)) as GameWithMeta[];
 
     // Find ESPN games not covered by odds (already tipped off or finished)
     const coveredTeams = new Set(
       oddsGames.flatMap((g) => [normalize(g.home_team), normalize(g.away_team)])
     );
 
-    const extraGames: ApiGame[] = [];
+    const extraGames: GameWithMeta[] = [];
     for (const espn of espnEvents) {
       const comp = espn.competitions[0];
       if (!comp) continue;
@@ -432,12 +475,40 @@ export async function GET() {
       );
       if (!alreadyCovered) {
         const game = buildGameFromESPN(espn);
-        if (game) extraGames.push(game);
+        if (game) extraGames.push(game as GameWithMeta);
       }
     }
 
+    const allGamesRaw = [...oddsGames, ...extraGames];
+
+    // Fetch win probability for live games (parallel, up to 8 at once)
+    const liveGames = allGamesRaw.filter((g) => g.status === "live" && g.espnId);
+    const wpResults = await Promise.all(
+      liveGames.map(async (g) => {
+        const wp = await fetchWinProbability(g.espnId!);
+        return { id: g.id, wp, dogIsHome: g._dogIsHome };
+      })
+    );
+
+    const wpMap = new Map(wpResults.map((r) => [r.id, r]));
+
+    // Merge win probability and clean up internal fields
+    const allGames: ApiGame[] = allGamesRaw.map((g) => {
+      const wpEntry = wpMap.get(g.id);
+      let underdogWinPct: number | undefined;
+
+      if (wpEntry?.wp) {
+        underdogWinPct = wpEntry.dogIsHome
+          ? wpEntry.wp.homeWinPct
+          : wpEntry.wp.awayWinPct;
+      }
+
+      const { _dogIsHome, ...game } = g;
+      return { ...game, underdogWinPct };
+    });
+
     // Sort: live first, then upcoming by time, then final
-    const allGames = [...oddsGames, ...extraGames].sort((a, b) => {
+    allGames.sort((a, b) => {
       const order = { live: 0, upcoming: 1, final: 2 };
       if (order[a.status] !== order[b.status])
         return order[a.status] - order[b.status];
