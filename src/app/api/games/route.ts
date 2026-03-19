@@ -220,6 +220,8 @@ export interface GamesResponse {
   games: ApiGame[];
   fetchedAt: string;
   oddsRemaining?: number;
+  /** Set when Odds API returned 429 (out of credits) but we served cached games */
+  oddsOutOfCredits?: boolean;
 }
 
 // ── Static ESPN team ID map for guaranteed logo URLs ──
@@ -394,6 +396,20 @@ function teamsMatch(a: string, b: string): boolean {
 
 // ── Pregame odds cache — lock in odds once captured, never overwrite with live lines ──
 
+// Static pregame odds for specific underdogs (used when API doesn't have pregame or we want to lock in)
+const PREGAME_OVERRIDES: Record<string, number> = {
+  tcu: 120,
+  troy: 650,
+};
+
+function getPregameOverride(underdogName: string): number | undefined {
+  const n = normalize(underdogName);
+  for (const [key, odds] of Object.entries(PREGAME_OVERRIDES)) {
+    if (n.includes(key) || key.includes(n)) return odds;
+  }
+  return undefined;
+}
+
 interface CachedOdds {
   favoriteOdds: number;
   underdogOdds: number;
@@ -474,10 +490,21 @@ async function fetchOdds(): Promise<{ events: OddsEvent[]; remaining?: number }>
   }
 
   const url = `${ODDS_API}/odds?apiKey=${apiKey}&regions=us&markets=h2h&oddsFormat=american&bookmakers=draftkings`;
-  const res = await fetch(url, { cache: "no-store" });
+  let res: Response;
+  try {
+    res = await fetch(url, { cache: "no-store" });
+  } catch (err) {
+    console.error("Odds API connection failed:", err);
+    return { events: dailyOddsCache?.events ?? [], remaining: dailyOddsCache?.remaining };
+  }
 
   if (!res.ok) {
-    console.error("Odds API error:", res.status, await res.text());
+    const body = await res.text();
+    console.error("Odds API error:", res.status, body);
+    if (res.status === 429) {
+      console.error("[Odds API] Out of credits (429). Use cached odds until next refresh.");
+      return { events: dailyOddsCache?.events ?? [], remaining: 0 };
+    }
     return { events: dailyOddsCache?.events ?? [], remaining: dailyOddsCache?.remaining };
   }
 
@@ -564,25 +591,51 @@ function buildGame(oddsEvent: OddsEvent, espnEvents: ESPNEvent[]): ApiGame {
   const opponentOdds = homeIsOurPick ? awayOdds : homeOdds;
   const ourPickOdds = homeIsOurPick ? homeOdds : awayOdds;
 
-  // Cache pregame odds — lock in on first sight, never overwrite
+  const hasCommenced = new Date(oddsEvent.commence_time).getTime() <= Date.now();
   const cached = getCachedOdds(gameKey);
-  if (!cached && ourPickOdds !== 0) {
-    cacheOdds(gameKey, {
-      favoriteOdds: opponentOdds,
-      underdogOdds: ourPickOdds,
+  const overrideOdds = getPregameOverride(ourPickName);
+
+  let locked: CachedOdds;
+
+  if (overrideOdds !== undefined) {
+    if (!cached) {
+      cacheOdds(gameKey, {
+        favoriteOdds: opponentOdds || 0,
+        underdogOdds: overrideOdds,
+        favoriteName: opponentName,
+        underdogName: ourPickName,
+        oddsSource: oddsSource || "Pregame",
+      });
+    }
+    locked = getCachedOdds(gameKey) ?? {
+      favoriteOdds: opponentOdds || 0,
+      underdogOdds: overrideOdds,
       favoriteName: opponentName,
       underdogName: ourPickName,
-      oddsSource,
-    });
+      oddsSource: oddsSource || "Pregame",
+    };
+  } else {
+    if (!hasCommenced && !cached && ourPickOdds !== 0) {
+      cacheOdds(gameKey, {
+        favoriteOdds: opponentOdds,
+        underdogOdds: ourPickOdds,
+        favoriteName: opponentName,
+        underdogName: ourPickName,
+        oddsSource,
+      });
+    }
+    locked =
+      cached ??
+      (hasCommenced
+        ? { favoriteOdds: 0, underdogOdds: 0, favoriteName: opponentName, underdogName: ourPickName, oddsSource }
+        : {
+            favoriteOdds: opponentOdds,
+            underdogOdds: ourPickOdds,
+            favoriteName: opponentName,
+            underdogName: ourPickName,
+            oddsSource,
+          });
   }
-
-  const locked = cached ?? {
-    favoriteOdds: opponentOdds,
-    underdogOdds: ourPickOdds,
-    favoriteName: opponentName,
-    underdogName: ourPickName,
-    oddsSource,
-  };
 
   const favorite = { name: locked.favoriteName, odds: locked.favoriteOdds };
   const underdog = { name: locked.underdogName, odds: locked.underdogOdds };
@@ -850,10 +903,12 @@ export async function GET() {
         || logoLookup.get(normalize(game.underdog.name))
         || getStaticLogo(game.underdog.name);
 
+      const underdogOdds = getPregameOverride(game.underdog.name) ?? game.underdog.odds;
+
       return {
         ...game,
         favorite: { ...game.favorite, logo: favLogo },
-        underdog: { ...game.underdog, logo: dogLogo },
+        underdog: { ...game.underdog, logo: dogLogo, odds: underdogOdds },
         underdogWinPct,
       };
     });
@@ -873,6 +928,7 @@ export async function GET() {
       games: allGames,
       fetchedAt: new Date().toISOString(),
       oddsRemaining: oddsResult.remaining,
+      oddsOutOfCredits: oddsResult.remaining === 0,
     };
 
     return NextResponse.json(response, {

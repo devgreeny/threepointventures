@@ -6,6 +6,42 @@ import type { ApiGame, GamesResponse } from "@/app/api/games/route";
 const UNIT_SIZE = 10;
 const POLL_LIVE = 30_000;
 const POLL_IDLE = 120_000;
+const MINUTE_MS = 60_000;
+const EV_SNAPSHOTS_KEY = "ev-tracker-snapshots";
+const EV_SNAPSHOTS_RETENTION_MS = 7 * 24 * 60 * MINUTE_MS; // 7 days
+
+export interface EVSnapshot {
+  t: number;
+  v: number;
+}
+
+function getEVSnapshots(): EVSnapshot[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = localStorage.getItem(EV_SNAPSHOTS_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as EVSnapshot[];
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function appendEVSnapshot(timestamp: number, value: number): void {
+  if (typeof window === "undefined") return;
+  const t = Math.floor(timestamp / MINUTE_MS) * MINUTE_MS;
+  const snapshots = getEVSnapshots();
+  const filtered = snapshots.filter((s) => s.t !== t);
+  filtered.push({ t, v: value });
+  filtered.sort((a, b) => a.t - b.t);
+  const cutoff = Date.now() - EV_SNAPSHOTS_RETENTION_MS;
+  const trimmed = filtered.filter((s) => s.t >= cutoff);
+  try {
+    localStorage.setItem(EV_SNAPSHOTS_KEY, JSON.stringify(trimmed));
+  } catch {
+    // quota or disabled
+  }
+}
 
 // Strip the last word (mascot) to get the school name — "Duke Blue Devils" → "Duke"
 function schoolName(fullName: string): string {
@@ -313,24 +349,51 @@ function GameCard({ game, index }: { game: ApiGame; index: number }) {
   );
 }
 
-/* ── EV Chart (pure SVG, time-bucketed) ── */
+/* ── EV Chart (Google Finance–style: timeframes, tooltip, reference line) ── */
+
+type Timeframe = "1D" | "5D" | "7D" | "Max";
 
 function EVChart({ games }: { games: ApiGame[] }) {
   const [now, setNow] = useState(0);
+  const [snapshots, setSnapshots] = useState<EVSnapshot[]>([]);
+  const [timeframe, setTimeframe] = useState<Timeframe>("1D");
+  const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const chartWrapRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     setNow(Date.now());
-    const id = setInterval(() => setNow(Date.now()), 60_000);
+    setSnapshots(getEVSnapshots());
+    const id = setInterval(() => {
+      const t = Date.now();
+      setNow(t);
+      setSnapshots(getEVSnapshots());
+    }, MINUTE_MS);
     return () => clearInterval(id);
   }, []);
 
-  useEffect(() => {
-    if (scrollRef.current) scrollRef.current.scrollLeft = scrollRef.current.scrollWidth;
-  }, [now, games]);
-
   const withOdds = games.filter((g) => g.underdog.odds !== 0 && g.commence_time);
   const startedGames = withOdds.filter((g) => g.status === "live" || g.status === "final");
+
+  // Current cumulative EV from games (for live display and recording)
+  const currentCumulativeEV = startedGames.length
+    ? withOdds
+        .filter((g) => new Date(g.commence_time).getTime() <= now)
+        .reduce((sum, g) => sum + calcEV(g), 0)
+    : 0;
+  const anyLive = withOdds.some((g) => g.status === "live");
+
+  // Record a snapshot every minute when we have started games
+  useEffect(() => {
+    if (startedGames.length === 0 || now === 0) return;
+    const floored = Math.floor(now / MINUTE_MS) * MINUTE_MS;
+    appendEVSnapshot(floored, currentCumulativeEV);
+    setSnapshots(getEVSnapshots());
+  }, [now, currentCumulativeEV, startedGames.length]);
+
+  useEffect(() => {
+    if (scrollRef.current) scrollRef.current.scrollLeft = scrollRef.current.scrollWidth;
+  }, [now, games, snapshots]);
 
   if (startedGames.length === 0) {
     return (
@@ -341,13 +404,13 @@ function EVChart({ games }: { games: ApiGame[] }) {
             <span className="text-[15px] font-bold tabular-nums text-foreground">$0.00</span>
           </div>
           <p className="text-[12px] text-tertiary mt-0.5">
-            Live cumulative P/L · updates every minute
+            Live cumulative P/L · tracks every minute (stock-style)
           </p>
         </div>
         <div className="flex items-center justify-center py-10">
           <div className="text-center">
             <p className="text-[13px] text-secondary">Chart goes live at tipoff</p>
-            <p className="text-[11px] text-tertiary mt-0.5">Updates in real time as games are played</p>
+            <p className="text-[11px] text-tertiary mt-0.5">Values saved every minute for historical chart</p>
           </div>
         </div>
         <div className="flex items-center justify-center gap-4 px-4 pb-3 text-[11px] text-tertiary">
@@ -365,67 +428,91 @@ function EVChart({ games }: { games: ApiGame[] }) {
     );
   }
 
-  const t0 = Math.min(...startedGames.map((g) => new Date(g.commence_time).getTime()));
-  const tN = now;
-  const MINUTE = 60_000;
+  const t0 = Math.min(
+    ...startedGames.map((g) => new Date(g.commence_time).getTime()),
+    snapshots.length ? snapshots[0].t : Infinity
+  );
+  const t0Aligned = Math.floor(t0 / MINUTE_MS) * MINUTE_MS;
+  const tN = Math.floor(now / MINUTE_MS) * MINUTE_MS;
+
+  const snapshotByMinute = new Map<number, number>();
+  for (const s of snapshots) snapshotByMinute.set(s.t, s.v);
 
   interface Tick { time: number; cumulative: number; hasLive: boolean }
   const ticks: Tick[] = [];
-  for (let t = t0; t <= tN; t += MINUTE) {
-    let cum = 0;
-    let hasLive = false;
-    for (const g of withOdds) {
-      const start = new Date(g.commence_time).getTime();
-      if (start > t) continue;
-      cum += calcEV(g);
-      if (g.status === "live") hasLive = true;
-    }
-    ticks.push({ time: t, cumulative: cum, hasLive });
+  let lastV: number | undefined = undefined;
+
+  for (let t = t0Aligned; t <= tN; t += MINUTE_MS) {
+    const stored = snapshotByMinute.get(t);
+    const isCurrentMinute = t === tN;
+    const value =
+      stored !== undefined ? stored
+      : isCurrentMinute ? currentCumulativeEV
+      : lastV ?? 0;
+    lastV = value;
+    ticks.push({
+      time: t,
+      cumulative: value,
+      hasLive: isCurrentMinute && anyLive,
+    });
   }
 
   if (ticks.length === 0) return null;
 
+  // Filter by timeframe (Google-style range)
+  const rangeMs =
+    timeframe === "1D" ? 24 * 60 * MINUTE_MS
+    : timeframe === "5D" ? 5 * 24 * 60 * MINUTE_MS
+    : timeframe === "7D" ? 7 * 24 * 60 * MINUTE_MS
+    : Infinity;
+  const tStart = rangeMs === Infinity ? t0Aligned : Math.max(t0Aligned, tN - rangeMs);
+  const ticksInRange = ticks.filter((t) => t.time >= tStart);
+  const displayTicks = ticksInRange.length > 0 ? ticksInRange : ticks;
+  const firstVal = displayTicks[0].cumulative;
+  const lastVal = displayTicks[displayTicks.length - 1].cumulative;
+  const change = lastVal - firstVal;
+  const changePct = firstVal !== 0 ? (change / Math.abs(firstVal)) * 100 : (lastVal !== 0 ? 100 : 0);
+  const isPositive = lastVal >= 0;
+
   const W_PER_MIN = 2;
-  const svgW = Math.max(ticks.length * W_PER_MIN, 320);
+  const svgW = Math.max(displayTicks.length * W_PER_MIN, 320);
   const H = 280;
   const PAD_L = 48;
-  const PAD_R = 24;
+  const PAD_R = 64;
   const PAD_T = 24;
   const PAD_B = 56;
   const chartW = svgW - PAD_L - PAD_R;
   const chartH = H - PAD_T - PAD_B;
 
-  const values = ticks.map((t) => t.cumulative);
+  const values = displayTicks.map((t) => t.cumulative);
   const rawMax = Math.max(Math.abs(Math.max(...values)), Math.abs(Math.min(...values)), 10);
   const yMax = Math.ceil(rawMax / 10) * 10;
 
-  const toX = (i: number) => PAD_L + (ticks.length <= 1 ? chartW / 2 : (i / (ticks.length - 1)) * chartW);
+  const toX = (i: number) => PAD_L + (displayTicks.length <= 1 ? chartW / 2 : (i / (displayTicks.length - 1)) * chartW);
   const toY = (val: number) => PAD_T + chartH / 2 - (val / yMax) * (chartH / 2);
 
   const zeroY = toY(0);
 
   // Downsample for SVG perf — max ~600 points in the path
-  const step = Math.max(1, Math.floor(ticks.length / 600));
-  const sampledIdx = ticks.map((_, i) => i).filter((i) => i % step === 0 || i === ticks.length - 1);
+  const step = Math.max(1, Math.floor(displayTicks.length / 600));
+  const sampledIdx = displayTicks.map((_, i) => i).filter((i) => i % step === 0 || i === displayTicks.length - 1);
 
-  const pathPoints = sampledIdx.map((i) => `${toX(i)},${toY(ticks[i].cumulative)}`);
+  const pathPoints = sampledIdx.map((i) => `${toX(i)},${toY(displayTicks[i].cumulative)}`);
   const linePath = `M${pathPoints.join("L")}`;
   const areaPath = `M${toX(sampledIdx[0])},${zeroY}L${pathPoints.join("L")}L${toX(sampledIdx[sampledIdx.length - 1])},${zeroY}Z`;
 
-  const lastVal = ticks[ticks.length - 1].cumulative;
-  const isPositive = lastVal >= 0;
-  const anyLive = ticks[ticks.length - 1].hasLive;
-
   const yTicks2 = [-yMax, -yMax / 2, 0, yMax / 2, yMax].filter((v) => Math.abs(v) <= yMax);
 
-  // X-axis labels every 30 min
-  const HALF_HOUR = 30 * MINUTE;
-  const firstLabel = Math.ceil(ticks[0].time / HALF_HOUR) * HALF_HOUR;
+  // X-axis labels every 30 min (stock-style time axis)
+  const HALF_HOUR = 30 * MINUTE_MS;
+  const tFirst = displayTicks[0].time;
+  const tLast = displayTicks[displayTicks.length - 1].time;
+  const firstLabel = Math.ceil(tFirst / HALF_HOUR) * HALF_HOUR;
   const xLabels: { idx: number; label: string; dateLabel: string; isDay: boolean }[] = [];
   let prevDay = "";
-  for (let t = firstLabel; t <= tN; t += HALF_HOUR) {
-    const idx = Math.round((t - t0) / MINUTE);
-    if (idx < 0 || idx >= ticks.length) continue;
+  for (let t = firstLabel; t <= tLast; t += HALF_HOUR) {
+    const idx = Math.round((t - tFirst) / MINUTE_MS);
+    if (idx < 0 || idx >= displayTicks.length) continue;
     const d = new Date(t);
     let h = d.getHours();
     const m = d.getMinutes();
@@ -438,34 +525,93 @@ function EVChart({ games }: { games: ApiGame[] }) {
     xLabels.push({ idx, label, dateLabel, isDay });
   }
 
+  const lastUpdated = new Date().toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+  const tabs: Timeframe[] = ["1D", "5D", "7D", "Max"];
+
+  const handleChartMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
+    const scrollEl = scrollRef.current;
+    if (!scrollEl) return;
+    const rect = scrollEl.getBoundingClientRect();
+    const paddingLeft = 8;
+    const xInContent = e.clientX - rect.left - paddingLeft + scrollEl.scrollLeft;
+    const xInChart = xInContent - PAD_L;
+    if (xInChart < 0 || xInChart > chartW) {
+      setHoveredIndex(null);
+      return;
+    }
+    const i = Math.round((xInChart / chartW) * (displayTicks.length - 1));
+    const clamped = Math.max(0, Math.min(i, displayTicks.length - 1));
+    setHoveredIndex(clamped);
+  };
+
+  const handleChartMouseLeave = () => setHoveredIndex(null);
+
   return (
     <div className="bg-card rounded-2xl shadow-card overflow-hidden">
-      <div className="px-4 pt-4 pb-2">
-        <div className="flex items-center justify-between">
-          <h3 className="text-[15px] font-semibold">P/L Timeline</h3>
-          <div className="flex items-center gap-2">
-            {anyLive && <span className="h-1.5 w-1.5 rounded-full bg-ios-blue animate-pulse" />}
-            <span className={`text-[15px] font-bold tabular-nums ${
+      {/* Google-style header: large value, change %, timestamp */}
+      <div className="px-4 pt-4 pb-1">
+        <div className="flex items-start justify-between gap-2">
+          <div>
+            <p className={`text-[28px] font-bold tabular-nums tracking-tight ${
               isPositive ? "text-ios-green" : lastVal < 0 ? "text-ios-red" : "text-foreground"
             }`}>
-              {formatMoney(lastVal)}
-            </span>
+              {lastVal >= 0 ? "+" : ""}{lastVal.toFixed(2)} USD
+            </p>
+            <p className={`text-[13px] mt-0.5 tabular-nums ${
+              change >= 0 ? "text-ios-green" : "text-ios-red"
+            }`}>
+              {change >= 0 ? "+" : ""}{change.toFixed(2)} ({changePct >= 0 ? "+" : ""}{changePct.toFixed(1)}%) {change >= 0 ? "↑" : "↓"} {timeframe === "1D" ? "today" : timeframe.toLowerCase()}
+            </p>
+            <p className="text-[11px] text-tertiary mt-1">
+              {lastUpdated}
+              {snapshots.length > 0 && (
+                <span className="ml-1">· {snapshots.length} point{snapshots.length !== 1 ? "s" : ""} recorded</span>
+              )}
+            </p>
           </div>
+          {anyLive && (
+            <span className="flex items-center gap-1.5 text-[12px] font-semibold text-ios-blue shrink-0">
+              <span className="h-2 w-2 rounded-full bg-ios-blue animate-pulse" /> Live
+            </span>
+          )}
         </div>
-        <p className="text-[12px] text-tertiary mt-0.5">
-          Live cumulative P/L · updates every minute
-        </p>
       </div>
 
+      {/* Timeframe tabs */}
+      <div className="flex border-b border-separator px-4">
+        {tabs.map((tab) => (
+          <button
+            key={tab}
+            type="button"
+            onClick={() => setTimeframe(tab)}
+            className={`relative py-2.5 px-3 text-[13px] font-medium tabular-nums transition-colors ${
+              timeframe === tab ? "text-foreground" : "text-tertiary"
+            }`}
+          >
+            {tab}
+            {timeframe === tab && (
+              <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-ios-blue rounded-full" />
+            )}
+          </button>
+        ))}
+      </div>
+
+      <div
+        ref={chartWrapRef}
+        onMouseMove={handleChartMouseMove}
+        onMouseLeave={handleChartMouseLeave}
+        className="relative"
+      >
       <div ref={scrollRef} className="px-2 pb-3 overflow-x-auto">
+        <div className="relative inline-block" style={{ width: svgW, minWidth: 320 }}>
         <svg viewBox={`0 0 ${svgW} ${H}`} className="block" style={{ width: svgW, minWidth: 320, height: H }}>
-          {/* Y grid lines */}
+          {/* Y grid lines — stock-style light grid */}
           {yTicks2.map((v) => (
             <g key={v}>
               <line
                 x1={PAD_L} y1={toY(v)} x2={svgW - PAD_R} y2={toY(v)}
-                stroke={v === 0 ? "rgba(0,0,0,0.12)" : "rgba(0,0,0,0.05)"}
-                strokeWidth={v === 0 ? 1 : 0.5}
+                stroke={v === 0 ? "rgba(0,0,0,0.15)" : "rgba(0,0,0,0.06)"}
+                strokeWidth={v === 0 ? 1.5 : 0.5}
               />
               <text
                 x={PAD_L - 8} y={toY(v)} textAnchor="end" dominantBaseline="middle"
@@ -475,6 +621,22 @@ function EVChart({ games }: { games: ApiGame[] }) {
               </text>
             </g>
           ))}
+
+          {/* Previous close / session start reference line */}
+          {displayTicks.length > 1 && (
+            <g>
+              <line
+                x1={PAD_L} y1={toY(firstVal)} x2={svgW - PAD_R} y2={toY(firstVal)}
+                stroke="rgba(128,128,128,0.5)" strokeWidth="1" strokeDasharray="4 3"
+              />
+              <text
+                x={svgW - PAD_R + 4} y={toY(firstVal)} textAnchor="start" dominantBaseline="middle"
+                fill="#8e8e93" fontSize="9" fontWeight="500"
+              >
+                Session start {firstVal >= 0 ? "+" : ""}{firstVal.toFixed(2)}
+              </text>
+            </g>
+          )}
 
           {/* Area fill */}
           <path d={areaPath} fill={isPositive ? "rgba(52,199,89,0.08)" : "rgba(255,59,48,0.08)"} />
@@ -486,38 +648,65 @@ function EVChart({ games }: { games: ApiGame[] }) {
             strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
           />
 
-          {/* Game event markers */}
+          {/* Hover: vertical dashed line + dot + tooltip */}
+          {hoveredIndex !== null && (
+            <g>
+              <line
+                x1={toX(hoveredIndex)} y1={PAD_T} x2={toX(hoveredIndex)} y2={H - PAD_B}
+                stroke="#8e8e93" strokeWidth="1" strokeDasharray="4 3" opacity={0.8}
+              />
+              <circle
+                cx={toX(hoveredIndex)} cy={toY(displayTicks[hoveredIndex].cumulative)} r={4}
+                fill={isPositive ? "#34c759" : "#ff3b30"} stroke="#fff" strokeWidth="1.5"
+              />
+            </g>
+          )}
+
+          {/* Game start & end dots on the line */}
           {withOdds
             .filter((g) => g.status === "final" || g.status === "live")
             .map((g, gi) => {
               const start = new Date(g.commence_time).getTime();
-              const tickIdx = Math.round((start - t0) / MINUTE);
-              if (tickIdx < 0 || tickIdx >= ticks.length) return null;
-              const x = toX(tickIdx);
-              const y = toY(ticks[tickIdx].cumulative);
+              const startIdx = displayTicks.findIndex((t) => t.time >= start);
+              const idx = startIdx < 0 ? displayTicks.length - 1 : startIdx;
+              if (idx < 0 || idx >= displayTicks.length) return null;
+              const endIdx = g.status === "final" ? Math.min(idx + 1, displayTicks.length - 1) : null;
               const ev = calcEV(g);
               const won = g.result === "win";
-              const lost = g.result === "loss";
               const live = g.status === "live";
               const color = live ? "#007aff" : won ? "#34c759" : "#ff3b30";
               const label = schoolName(g.underdog.name);
-              const above = y > toY(0);
+
               return (
                 <g key={`evt-${gi}`}>
-                  <circle cx={x} cy={y} r={4} fill={color} />
+                  {/* Start dot (tipoff) — on the line at game start */}
+                  <circle
+                    cx={toX(idx)} cy={toY(displayTicks[idx].cumulative)} r={4}
+                    fill={color} stroke="#fff" strokeWidth="1.5"
+                  />
+                  {/* End dot (first tick after result) — for final games only */}
+                  {endIdx !== null && endIdx !== idx && (
+                    <circle
+                      cx={toX(endIdx)} cy={toY(displayTicks[endIdx].cumulative)} r={5}
+                      fill="none" stroke={color} strokeWidth="2"
+                    />
+                  )}
                   {live && (
-                    <circle cx={x} cy={y} r={7} fill="none" stroke="#007aff" strokeWidth="1.5" opacity="0.4" />
+                    <circle
+                      cx={toX(idx)} cy={toY(displayTicks[idx].cumulative)} r={7}
+                      fill="none" stroke="#007aff" strokeWidth="1.5" opacity="0.4"
+                    />
                   )}
                   <text
-                    x={x} y={above ? y + 14 : y - 8} textAnchor="middle"
-                    fill={color} fontSize="8" fontWeight="600"
+                    x={toX(idx)} y={toY(displayTicks[idx].cumulative) > toY(0) ? toY(displayTicks[idx].cumulative) + 14 : toY(displayTicks[idx].cumulative) - 8}
+                    textAnchor="middle" fill={color} fontSize="8" fontWeight="600"
                   >
                     {live ? `${label}` : won ? `${label} W` : `${label} L`}
                   </text>
                   {g.status === "final" && (
                     <text
-                      x={x} y={above ? y + 23 : y - 17} textAnchor="middle"
-                      fill={color} fontSize="7" fontWeight="500" opacity="0.7"
+                      x={toX(idx)} y={toY(displayTicks[idx].cumulative) > toY(0) ? toY(displayTicks[idx].cumulative) + 23 : toY(displayTicks[idx].cumulative) - 17}
+                      textAnchor="middle" fill={color} fontSize="7" fontWeight="500" opacity="0.7"
                     >
                       {ev >= 0 ? `+$${ev.toFixed(0)}` : `-$${Math.abs(ev).toFixed(0)}`}
                     </text>
@@ -526,16 +715,20 @@ function EVChart({ games }: { games: ApiGame[] }) {
               );
             })}
 
-          {/* Leading edge dot */}
-          <circle
-            cx={toX(ticks.length - 1)} cy={toY(lastVal)} r={4}
-            fill={anyLive ? "#007aff" : isPositive ? "#34c759" : "#ff3b30"}
-          />
-          {anyLive && (
-            <circle
-              cx={toX(ticks.length - 1)} cy={toY(lastVal)} r={7}
-              fill="none" stroke="#007aff" strokeWidth="1.5" opacity="0.4"
-            />
+          {/* Leading edge dot (when not hovering) */}
+          {hoveredIndex === null && (
+            <>
+              <circle
+                cx={toX(displayTicks.length - 1)} cy={toY(lastVal)} r={4}
+                fill={anyLive ? "#007aff" : isPositive ? "#34c759" : "#ff3b30"}
+              />
+              {anyLive && (
+                <circle
+                  cx={toX(displayTicks.length - 1)} cy={toY(lastVal)} r={7}
+                  fill="none" stroke="#007aff" strokeWidth="1.5" opacity="0.4"
+                />
+              )}
+            </>
           )}
 
           {/* X-axis labels */}
@@ -558,6 +751,28 @@ function EVChart({ games }: { games: ApiGame[] }) {
             </g>
           ))}
         </svg>
+
+        {/* Floating tooltip (Google-style) */}
+        {hoveredIndex !== null && (
+          <div
+            className="pointer-events-none absolute z-10 rounded-lg bg-[#2c2c2e] px-2.5 py-1.5 shadow-lg"
+            style={{
+              left: toX(hoveredIndex) - 44,
+              top: toY(displayTicks[hoveredIndex].cumulative) - 36,
+              minWidth: 88,
+            }}
+          >
+            <p className="text-[12px] font-semibold tabular-nums text-white">
+              {displayTicks[hoveredIndex].cumulative >= 0 ? "+" : ""}
+              {displayTicks[hoveredIndex].cumulative.toFixed(2)} USD
+            </p>
+            <p className="text-[11px] text-tertiary">
+              {new Date(displayTicks[hoveredIndex].time).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}
+            </p>
+          </div>
+        )}
+        </div>
+      </div>
       </div>
 
       {/* Legend */}
@@ -628,9 +843,10 @@ function Countdown({ games }: { games: ApiGame[] }) {
   );
 }
 
-function ScoresTab({ games, stats, liveCount, lastUpdated, loading, error }: {
+function ScoresTab({ games, stats, liveCount, lastUpdated, loading, error, oddsOutOfCredits, oddsRemaining }: {
   games: ApiGame[]; stats: ReturnType<typeof getStats>; liveCount: number;
   lastUpdated: string | null; loading: boolean; error: boolean;
+  oddsOutOfCredits?: boolean; oddsRemaining?: number | null;
 }) {
   const profitColor = stats.totalProfit > 0 ? "text-ios-green" : stats.totalProfit < 0 ? "text-ios-red" : undefined;
 
@@ -665,7 +881,11 @@ function ScoresTab({ games, stats, liveCount, lastUpdated, loading, error }: {
             )}
             {lastUpdated && <span>Updated {lastUpdated}</span>}
             {loading && !lastUpdated && <span>Loading...</span>}
-            {error && <span className="text-ios-red">Connection error</span>}
+            {oddsOutOfCredits && <span className="text-ios-orange font-medium">Out of Odds API credits</span>}
+            {error && !oddsOutOfCredits && <span className="text-ios-red">Connection error</span>}
+            {oddsRemaining != null && !oddsOutOfCredits && (
+              <span className="text-tertiary tabular-nums">{oddsRemaining} odds credits</span>
+            )}
           </div>
         </div>
       </div>
@@ -708,6 +928,9 @@ export default function LiveTracker() {
   const [error, setError] = useState(false);
   const hasLiveRef = useRef(false);
 
+  const [oddsOutOfCredits, setOddsOutOfCredits] = useState(false);
+  const [oddsRemaining, setOddsRemaining] = useState<number | null>(null);
+
   const fetchGames = useCallback(async () => {
     try {
       const res = await fetch("/api/games");
@@ -717,6 +940,8 @@ export default function LiveTracker() {
       setLastUpdated(new Date().toLocaleTimeString());
       hasLiveRef.current = data.games.some((g) => g.status === "live");
       setError(false);
+      setOddsOutOfCredits(data.oddsOutOfCredits ?? false);
+      setOddsRemaining(data.oddsRemaining ?? null);
     } catch {
       setError(true);
     } finally {
@@ -734,6 +959,15 @@ export default function LiveTracker() {
   const liveCount = games.filter((g) => g.status === "live").length;
 
   return (
-    <ScoresTab games={games} stats={stats} liveCount={liveCount} lastUpdated={lastUpdated} loading={loading} error={error} />
+    <ScoresTab
+      games={games}
+      stats={stats}
+      liveCount={liveCount}
+      lastUpdated={lastUpdated}
+      loading={loading}
+      error={error}
+      oddsOutOfCredits={oddsOutOfCredits}
+      oddsRemaining={oddsRemaining}
+    />
   );
 }
