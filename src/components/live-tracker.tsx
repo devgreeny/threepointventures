@@ -316,10 +316,11 @@ function GameCard({ game, index }: { game: ApiGame; index: number }) {
 /* ── EV Chart (pure SVG, time-bucketed) ── */
 
 function EVChart({ games }: { games: ApiGame[] }) {
-  const [now, setNow] = useState(Date.now());
+  const [now, setNow] = useState(0);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
+    setNow(Date.now());
     const id = setInterval(() => setNow(Date.now()), 60_000);
     return () => clearInterval(id);
   }, []);
@@ -578,8 +579,9 @@ function EVChart({ games }: { games: ApiGame[] }) {
 /* ── Scores tab content ── */
 
 function Countdown({ games }: { games: ApiGame[] }) {
-  const [now, setNow] = useState(Date.now());
+  const [now, setNow] = useState(0);
   useEffect(() => {
+    setNow(Date.now());
     const id = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(id);
   }, []);
@@ -588,7 +590,7 @@ function Countdown({ games }: { games: ApiGame[] }) {
     .filter((g) => g.status === "upcoming" && g.commence_time)
     .sort((a, b) => new Date(a.commence_time).getTime() - new Date(b.commence_time).getTime());
 
-  if (upcoming.length === 0) return null;
+  if (upcoming.length === 0 || now === 0) return null;
 
   const next = upcoming[0];
   const tipoff = new Date(next.commence_time).getTime();
