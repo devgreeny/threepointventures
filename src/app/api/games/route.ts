@@ -36,7 +36,7 @@ interface OddsEvent {
 // ── ESPN types ──
 
 interface ESPNCompetitor {
-  team: { displayName: string; shortDisplayName: string; abbreviation: string };
+  team: { displayName: string; shortDisplayName: string; abbreviation: string; logo?: string };
   score: string;
   homeAway: string;
   winner?: boolean;
@@ -198,12 +198,14 @@ export interface ApiGame {
     odds: number;
     score?: number;
     seed?: number;
+    logo?: string;
   };
   underdog: {
     name: string;
     odds: number;
     score?: number;
     seed?: number;
+    logo?: string;
   };
   status: "upcoming" | "live" | "final";
   result: "win" | "loss" | "push" | "pending";
@@ -218,6 +220,121 @@ export interface GamesResponse {
   games: ApiGame[];
   fetchedAt: string;
   oddsRemaining?: number;
+}
+
+// ── Static ESPN team ID map for guaranteed logo URLs ──
+
+const ESPN_TEAM_IDS: Record<string, number> = {
+  "Akron Zips": 2006,
+  "Alabama Crimson Tide": 333,
+  "Alabama State Hornets": 2011,
+  "Arizona Wildcats": 12,
+  "Arkansas Razorbacks": 8,
+  "Auburn Tigers": 2,
+  "BYU Cougars": 252,
+  "Baylor Bears": 239,
+  "California Baptist Lancers": 2856,
+  "Clemson Tigers": 228,
+  "Colgate Raiders": 2142,
+  "Creighton Bluejays": 156,
+  "Drake Bulldogs": 2181,
+  "Duke Blue Devils": 150,
+  "Florida Gators": 57,
+  "Furman Paladins": 231,
+  "Georgia Bulldogs": 61,
+  "Gonzaga Bulldogs": 2250,
+  "Grand Canyon Antelopes": 2253,
+  "High Point Panthers": 2272,
+  "Hofstra Pride": 2275,
+  "Houston Cougars": 248,
+  "Illinois Fighting Illini": 356,
+  "Iowa Hawkeyes": 2294,
+  "Iowa State Cyclones": 66,
+  "Kansas Jayhawks": 2305,
+  "Kentucky Wildcats": 96,
+  "Lipscomb Bisons": 288,
+  "Louisville Cardinals": 97,
+  "Marquette Golden Eagles": 269,
+  "Maryland Terrapins": 120,
+  "McNeese Cowboys": 2377,
+  "Memphis Tigers": 235,
+  "Michigan State Spartans": 127,
+  "Michigan Wolverines": 130,
+  "Mississippi State Bulldogs": 344,
+  "Missouri Tigers": 142,
+  "Montana Grizzlies": 149,
+  "North Carolina Tar Heels": 153,
+  "Northern Iowa Panthers": 2460,
+  "Ole Miss Rebels": 145,
+  "Omaha Mavericks": 2437,
+  "Oregon Ducks": 2483,
+  "Purdue Boilermakers": 2509,
+  "Robert Morris Colonials": 2523,
+  "SIU Edwardsville Cougars": 2565,
+  "Santa Clara Broncos": 2541,
+  "St. John's Red Storm": 2599,
+  "Tennessee State Tigers": 2634,
+  "Tennessee Volunteers": 2633,
+  "Texas A&M Aggies": 245,
+  "Texas Tech Red Raiders": 2641,
+  "Troy Trojans": 2653,
+  "Utah State Aggies": 328,
+  "UC San Diego Tritons": 28,
+  "UCF Knights": 2116,
+  "UCLA Bruins": 26,
+  "UConn Huskies": 41,
+  "UNC Wilmington Seahawks": 350,
+  "VCU Rams": 2670,
+  "Villanova Wildcats": 222,
+  "Virginia Cavaliers": 258,
+  "Wisconsin Badgers": 275,
+  "Wofford Terriers": 2747,
+  "Wright State Raiders": 2750,
+  "Yale Bulldogs": 43,
+  "North Dakota State Bison": 2449,
+  "Kennesaw State Owls": 338,
+  "Miami Hurricanes": 2390,
+};
+
+function expandAbbreviations(s: string): string {
+  return s
+    .replace(/\bst\b/g, "state")
+    .replace(/\bso\b/g, "southern")
+    .replace(/\bn\b/g, "north")
+    .replace(/\bs\b/g, "south")
+    .replace(/\bw\b/g, "west")
+    .replace(/\be\b/g, "east")
+    .replace(/\bfl\b/g, "florida")
+    .replace(/\bcal\b/g, "california");
+}
+
+const LOCAL_LOGOS: Record<string, string> = {
+  "Queens University Royals": "/logos/queens.png",
+  "Utah State Aggies": "/logos/utah-state.png",
+};
+
+function getStaticLogo(teamName: string): string | undefined {
+  // Check local logos first (teams not in ESPN)
+  if (LOCAL_LOGOS[teamName]) return LOCAL_LOGOS[teamName];
+  const nl = normalize(teamName);
+  for (const [name, url] of Object.entries(LOCAL_LOGOS)) {
+    if (normalize(name) === nl || nl.includes(normalize(name))) return url;
+  }
+  // ESPN ID lookup
+  const directId = ESPN_TEAM_IDS[teamName];
+  if (directId && directId > 0) {
+    return `https://a.espncdn.com/i/teamlogos/ncaa/500/${directId}.png`;
+  }
+  // Fuzzy match by normalized + expanded name
+  const n = expandAbbreviations(nl);
+  for (const [name, id] of Object.entries(ESPN_TEAM_IDS)) {
+    if (!id || id === 0) continue;
+    const nn = expandAbbreviations(normalize(name));
+    if (nn === n || nn.includes(n) || n.includes(nn)) {
+      return `https://a.espncdn.com/i/teamlogos/ncaa/500/${id}.png`;
+    }
+  }
+  return undefined;
 }
 
 // ── Team name normalization for matching between APIs ──
@@ -479,6 +596,8 @@ function buildGame(oddsEvent: OddsEvent, espnEvents: ESPNEvent[]): ApiGame {
   let dogScore: number | undefined;
   let favSeed: number | undefined;
   let dogSeed: number | undefined;
+  let favLogo: string | undefined;
+  let dogLogo: string | undefined;
   let espnId: string | undefined;
   let dogIsHome = false;
 
@@ -505,11 +624,13 @@ function buildGame(oddsEvent: OddsEvent, espnEvents: ESPNEvent[]): ApiGame {
       if (favComp) {
         favScore = parseInt(favComp.score, 10) || undefined;
         if (favComp.curatedRank?.current) favSeed = favComp.curatedRank.current;
+        favLogo = favComp.team.logo;
       }
       if (dogComp) {
         dogScore = parseInt(dogComp.score, 10) || undefined;
         if (dogComp.curatedRank?.current) dogSeed = dogComp.curatedRank.current;
         dogIsHome = dogComp.homeAway === "home";
+        dogLogo = dogComp.team.logo;
       }
 
       if (comp.status.type.completed) {
@@ -537,8 +658,8 @@ function buildGame(oddsEvent: OddsEvent, espnEvents: ESPNEvent[]): ApiGame {
     commence_time: oddsEvent.commence_time,
     home_team: oddsEvent.home_team,
     away_team: oddsEvent.away_team,
-    favorite: { ...favorite, score: favScore, seed: favSeed },
-    underdog: { ...underdog, score: dogScore, seed: dogSeed },
+    favorite: { ...favorite, score: favScore, seed: favSeed, logo: favLogo },
+    underdog: { ...underdog, score: dogScore, seed: dogSeed, logo: dogLogo },
     status,
     result,
     clock,
@@ -593,8 +714,8 @@ function buildGameFromESPN(espn: ESPNEvent): ApiGame | null {
     commence_time: "",
     home_team: home.team.displayName,
     away_team: away.team.displayName,
-    favorite: { name: fav.team.displayName, odds: 0, score: favScore, seed: favSeed },
-    underdog: { name: dog.team.displayName, odds: 0, score: dogScore, seed: dogSeed },
+    favorite: { name: fav.team.displayName, odds: 0, score: favScore, seed: favSeed, logo: fav.team.logo },
+    underdog: { name: dog.team.displayName, odds: 0, score: dogScore, seed: dogSeed, logo: dog.team.logo },
     status,
     result,
     clock: comp.status.displayClock,
@@ -642,6 +763,19 @@ export async function GET() {
       fetchOdds(),
       fetchESPN(),
     ]);
+
+    // Build a logo lookup from all ESPN competitors so every team gets a logo
+    const logoLookup = new Map<string, string>();
+    for (const espn of espnEvents) {
+      const comp = espn.competitions[0];
+      if (!comp) continue;
+      for (const c of comp.competitors) {
+        const logo = c.team.logo;
+        if (!logo) continue;
+        logoLookup.set(normalize(c.team.displayName), logo);
+        logoLookup.set(normalize(c.team.shortDisplayName), logo);
+      }
+    }
 
     // Only keep Odds API events where BOTH teams are in the tournament field
     const tournamentOddsEvents = oddsResult.events.filter((e) =>
@@ -695,7 +829,7 @@ export async function GET() {
 
     const wpMap = new Map(wpResults.map((r) => [r.id, r]));
 
-    // Merge win probability and clean up internal fields
+    // Merge win probability, fill missing logos, clean up internal fields
     const allGames: ApiGame[] = allGamesRaw.map((g) => {
       const wpEntry = wpMap.get(g.id);
       let underdogWinPct: number | undefined;
@@ -707,7 +841,21 @@ export async function GET() {
       }
 
       const { _dogIsHome, ...game } = g;
-      return { ...game, underdogWinPct };
+
+      // Resolve logos: ESPN scoreboard first, then static ID map
+      const favLogo = game.favorite.logo
+        || logoLookup.get(normalize(game.favorite.name))
+        || getStaticLogo(game.favorite.name);
+      const dogLogo = game.underdog.logo
+        || logoLookup.get(normalize(game.underdog.name))
+        || getStaticLogo(game.underdog.name);
+
+      return {
+        ...game,
+        favorite: { ...game.favorite, logo: favLogo },
+        underdog: { ...game.underdog, logo: dogLogo },
+        underdogWinPct,
+      };
     });
 
     // Sort: live first, then upcoming by time, then final
