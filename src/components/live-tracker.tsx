@@ -445,7 +445,7 @@ function EVChart({ games }: { games: ApiGame[] }) {
   for (let t = t0Aligned; t <= tN; t += MINUTE_MS) {
     const stored = snapshotByMinute.get(t);
     const isCurrentMinute = t === tN;
-    const value =
+    const value: number =
       stored !== undefined ? stored
       : isCurrentMinute ? currentCumulativeEV
       : lastV ?? 0;
