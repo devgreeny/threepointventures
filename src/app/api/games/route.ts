@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server";
+import { getDb } from "@/lib/mongodb";
 
 const ODDS_API = "https://api.the-odds-api.com/v4/sports/basketball_ncaab";
+const PREGAME_ODDS_COLLECTION = "pregame_odds";
+const COMPLETED_GAMES_COLLECTION = "completed_games";
 const ESPN_API =
   "https://site.api.espn.com/apis/site/v2/sports/basketball/mens-college-basketball/scoreboard";
 const ESPN_SUMMARY =
@@ -152,6 +155,16 @@ for (const team of TOURNAMENT_FIELD) {
   }
 }
 
+function canonicalTeamName(name: string): string {
+  const norm = normalize(name);
+  const direct = _teamLookup.get(norm);
+  if (direct) return normalize(direct.name);
+  for (const [key, team] of _teamLookup) {
+    if (norm.includes(key) || key.includes(norm)) return normalize(team.name);
+  }
+  return norm;
+}
+
 function lookupSeed(teamName: string): number | undefined {
   const norm = normalize(teamName);
   if (_seedMap.has(norm)) return _seedMap.get(norm);
@@ -183,6 +196,7 @@ interface ESPNEvent {
   id: string;
   name: string;
   shortName: string;
+  date?: string; // ISO date for commence_time when building from ESPN only
   competitions: ESPNCompetition[];
 }
 
@@ -430,8 +444,221 @@ function getCachedOdds(gameKey: string): CachedOdds | undefined {
   return oddsCache.get(gameKey);
 }
 
-function makeGameKey(team1: string, team2: string): string {
-  return [normalize(team1), normalize(team2)].sort().join("||");
+export function makeGameKey(team1: string, team2: string): string {
+  return [canonicalTeamName(team1), canonicalTeamName(team2)].sort().join("||");
+}
+
+// ── Database: 11am ET pregame odds snapshot (Supabase) ──
+
+function getDateET(): string {
+  const et = new Date(new Date().toLocaleString("en-US", { timeZone: "America/New_York" }));
+  const y = et.getFullYear();
+  const m = String(et.getMonth() + 1).padStart(2, "0");
+  const d = String(et.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
+export interface PregameOddsEntry {
+  gameKey: string;
+  commence_time: string;
+  home_team: string;
+  away_team: string;
+  favoriteName: string;
+  underdogName: string;
+  favoriteOdds: number;
+  underdogOdds: number;
+  oddsSource: string;
+}
+
+interface PregameOddsDoc {
+  snapshot_date: string;
+  game_key: string;
+  favorite_odds: number;
+  underdog_odds: number;
+  favorite_name: string;
+  underdog_name: string;
+  odds_source: string;
+}
+
+export async function getPregameOddsFromDB(): Promise<Map<string, CachedOdds>> {
+  const map = new Map<string, CachedOdds>();
+  const db = getDb();
+  if (!db) return map;
+  try {
+    const today = getDateET();
+    const yesterday = new Date(new Date(today).getTime() - 86400000).toISOString().slice(0, 10);
+    const cursor = db
+      .collection<PregameOddsDoc>(PREGAME_ODDS_COLLECTION)
+      .find({ snapshot_date: { $in: [today, yesterday] } })
+      .project({ game_key: 1, favorite_odds: 1, underdog_odds: 1, favorite_name: 1, underdog_name: 1, odds_source: 1 });
+    const rows = await cursor.toArray();
+    for (const row of rows) {
+      map.set(row.game_key, {
+        favoriteOdds: row.favorite_odds ?? 0,
+        underdogOdds: row.underdog_odds ?? 0,
+        favoriteName: row.favorite_name ?? "",
+        underdogName: row.underdog_name ?? "",
+        oddsSource: row.odds_source ?? "",
+      });
+    }
+  } catch {
+    // no DB or error
+  }
+  return map;
+}
+
+export async function savePregameOddsSnapshot(entries: PregameOddsEntry[]): Promise<void> {
+  const db = getDb();
+  if (!db) return;
+  try {
+    const date = getDateET();
+    const col = db.collection(PREGAME_ODDS_COLLECTION);
+    await col.deleteMany({ snapshot_date: date });
+    if (entries.length > 0) {
+      const docs = entries.map((e) => ({
+        snapshot_date: date,
+        game_key: e.gameKey,
+        commence_time: e.commence_time,
+        home_team: e.home_team,
+        away_team: e.away_team,
+        favorite_name: e.favoriteName,
+        underdog_name: e.underdogName,
+        favorite_odds: e.favoriteOdds,
+        underdog_odds: e.underdogOdds,
+        odds_source: e.oddsSource,
+      }));
+      await col.insertMany(docs);
+    }
+  } catch (e) {
+    console.error("savePregameOddsSnapshot:", e);
+  }
+}
+
+// ── Database: completed games (one source of truth for finished games) ──
+
+export interface CompletedGameDoc {
+  game_key: string;
+  underdog_name: string;
+  favorite_name: string;
+  underdog_odds: number;
+  result: "win" | "loss" | "push";
+  underdog_score?: number;
+  favorite_score?: number;
+  commence_time: string;
+  finished_at?: string;
+  espn_id?: string;
+  source?: "backfill" | "espn";
+}
+
+export async function getCompletedGamesFromDB(): Promise<Map<string, CompletedGameDoc>> {
+  const map = new Map<string, CompletedGameDoc>();
+  const db = getDb();
+  if (!db) return map;
+  try {
+    const cursor = db.collection<CompletedGameDoc>(COMPLETED_GAMES_COLLECTION).find({});
+    const rows = await cursor.toArray();
+    for (const row of rows) map.set(row.game_key, row);
+  } catch {
+    // no DB or error
+  }
+  return map;
+}
+
+export async function saveCompletedGame(doc: CompletedGameDoc): Promise<void> {
+  const db = getDb();
+  if (!db) return;
+  try {
+    const col = db.collection<CompletedGameDoc>(COMPLETED_GAMES_COLLECTION);
+    await col.updateOne({ game_key: doc.game_key }, { $set: doc }, { upsert: true });
+  } catch (e) {
+    console.error("saveCompletedGame:", e);
+  }
+}
+
+/** Turn a completed game doc into an ApiGame for display (e.g. backfilled games not on live feed). */
+function completedDocToApiGame(doc: CompletedGameDoc): GameWithMeta {
+  const favSeed = lookupSeed(doc.favorite_name);
+  const dogSeed = lookupSeed(doc.underdog_name);
+  return {
+    id: doc.espn_id ?? doc.game_key,
+    commence_time: doc.commence_time,
+    home_team: doc.favorite_name,
+    away_team: doc.underdog_name,
+    favorite: {
+      name: doc.favorite_name,
+      odds: 0,
+      score: doc.favorite_score,
+      seed: favSeed,
+      logo: getStaticLogo(doc.favorite_name),
+    },
+    underdog: {
+      name: doc.underdog_name,
+      odds: doc.underdog_odds,
+      score: doc.underdog_score,
+      seed: dogSeed,
+      logo: getStaticLogo(doc.underdog_name),
+    },
+    status: "final",
+    result: doc.result,
+    espnId: doc.espn_id,
+  } as GameWithMeta;
+}
+
+/** Build one snapshot entry from an Odds API event (tournament only). Used by cron. */
+export function buildPregameSnapshotFromOddsEvent(oddsEvent: OddsEvent): PregameOddsEntry | null {
+  if (!isTournamentTeam(oddsEvent.home_team) || !isTournamentTeam(oddsEvent.away_team)) return null;
+  let bookmaker = oddsEvent.bookmakers.find((b) => b.key === "draftkings");
+  if (!bookmaker) bookmaker = oddsEvent.bookmakers.find((b) => b.key === "fanduel");
+  if (!bookmaker) bookmaker = oddsEvent.bookmakers.find((b) => b.key === "betmgm");
+  if (!bookmaker) bookmaker = oddsEvent.bookmakers[0];
+  const oddsSource = bookmaker?.title ?? "";
+  const h2h = bookmaker?.markets.find((m) => m.key === "h2h");
+  const homeOutcome = h2h?.outcomes.find((o) => o.name === oddsEvent.home_team);
+  const awayOutcome = h2h?.outcomes.find((o) => o.name === oddsEvent.away_team);
+  const homeOdds = homeOutcome?.price ?? 0;
+  const awayOdds = awayOutcome?.price ?? 0;
+  const homeSeed = lookupSeed(oddsEvent.home_team);
+  const awaySeed = lookupSeed(oddsEvent.away_team);
+  const homeIsOurPick =
+    (homeSeed ?? 0) > (awaySeed ?? 0)
+    || ((homeSeed ?? 0) === (awaySeed ?? 0) && homeOdds > awayOdds);
+  const opponentName = homeIsOurPick ? oddsEvent.away_team : oddsEvent.home_team;
+  const ourPickName = homeIsOurPick ? oddsEvent.home_team : oddsEvent.away_team;
+  const opponentOdds = homeIsOurPick ? awayOdds : homeOdds;
+  const ourPickOdds = homeIsOurPick ? homeOdds : awayOdds;
+  const override = getPregameOverride(ourPickName);
+  const underdogOdds = override ?? ourPickOdds;
+  const favoriteOdds = opponentOdds;
+  return {
+    gameKey: makeGameKey(oddsEvent.home_team, oddsEvent.away_team),
+    commence_time: oddsEvent.commence_time,
+    home_team: oddsEvent.home_team,
+    away_team: oddsEvent.away_team,
+    favoriteName: opponentName,
+    underdogName: ourPickName,
+    favoriteOdds,
+    underdogOdds: underdogOdds || 0,
+    oddsSource,
+  };
+}
+
+/** Fetch odds from API without using in-memory cache. Used by 11am cron. */
+export async function fetchOddsFromAPI(): Promise<{ events: OddsEvent[]; remaining?: number }> {
+  const apiKey = process.env.ODDS_API_KEY;
+  if (!apiKey || apiKey === "YOUR_KEY_HERE") return { events: [] };
+  const url = `${ODDS_API}/odds?apiKey=${apiKey}&regions=us&markets=h2h&oddsFormat=american&bookmakers=draftkings`;
+  try {
+    const res = await fetch(url, { cache: "no-store" });
+    if (!res.ok) {
+      if (res.status === 429) return { events: [], remaining: 0 };
+      return { events: [] };
+    }
+    const remaining = res.headers.get("x-requests-remaining");
+    const data: OddsEvent[] = await res.json();
+    return { events: data, remaining: remaining ? parseInt(remaining) : undefined };
+  } catch {
+    return { events: [] };
+  }
 }
 
 // ── Filtering rules ──
@@ -560,7 +787,11 @@ async function fetchESPN(): Promise<ESPNEvent[]> {
 
 // ── Build a game from Odds API event, enriched with ESPN scores ──
 
-function buildGame(oddsEvent: OddsEvent, espnEvents: ESPNEvent[]): ApiGame {
+function buildGame(
+  oddsEvent: OddsEvent,
+  espnEvents: ESPNEvent[],
+  dbOddsMap?: Map<string, CachedOdds>
+): ApiGame {
   const gameKey = makeGameKey(oddsEvent.home_team, oddsEvent.away_team);
 
   // DraftKings odds only, fall back to FanDuel → BetMGM if DK unavailable
@@ -594,10 +825,14 @@ function buildGame(oddsEvent: OddsEvent, espnEvents: ESPNEvent[]): ApiGame {
   const hasCommenced = new Date(oddsEvent.commence_time).getTime() <= Date.now();
   const cached = getCachedOdds(gameKey);
   const overrideOdds = getPregameOverride(ourPickName);
+  const dbOdds = dbOddsMap?.get(gameKey);
 
   let locked: CachedOdds;
 
-  if (overrideOdds !== undefined) {
+  // Prefer 11am DB snapshot when present (single source of truth for display/calculations)
+  if (dbOdds) {
+    locked = dbOdds;
+  } else if (overrideOdds !== undefined) {
     if (!cached) {
       cacheOdds(gameKey, {
         favoriteOdds: opponentOdds || 0,
@@ -764,7 +999,7 @@ function buildGameFromESPN(espn: ESPNEvent): ApiGame | null {
 
   return {
     id: espn.id,
-    commence_time: "",
+    commence_time: espn.date ?? "",
     home_team: home.team.displayName,
     away_team: away.team.displayName,
     favorite: { name: fav.team.displayName, odds: 0, score: favScore, seed: favSeed, logo: fav.team.logo },
@@ -812,9 +1047,11 @@ type GameWithMeta = ApiGame & { _dogIsHome?: boolean };
 
 export async function GET() {
   try {
-    const [oddsResult, espnEvents] = await Promise.all([
-      fetchOdds(),
+    // Database-only for odds: no Odds API call here (saves credits). Cron at 11am ET fills pregame_odds.
+    const [espnEvents, dbOddsMap, completedMap] = await Promise.all([
       fetchESPN(),
+      getPregameOddsFromDB(),
+      getCompletedGamesFromDB(),
     ]);
 
     // Build a logo lookup from all ESPN competitors so every team gets a logo
@@ -830,37 +1067,31 @@ export async function GET() {
       }
     }
 
-    // Only keep Odds API events where BOTH teams are in the tournament field
-    const tournamentOddsEvents = oddsResult.events.filter((e) =>
-      isTournamentTeam(e.home_team) && isTournamentTeam(e.away_team)
-    );
-
-    const oddsGames = tournamentOddsEvents.map((e) => buildGame(e, espnEvents)) as GameWithMeta[];
-
-    // Find ESPN tournament games not covered by odds (already tipped off or finished)
-    const coveredTeams = new Set(
-      oddsGames.flatMap((g) => [normalize(g.home_team), normalize(g.away_team)])
-    );
-
-    const extraGames: GameWithMeta[] = [];
+    // Build all games from ESPN only; overlay odds from DB (pregame_odds snapshot from 11am cron)
+    const allGamesUnfiltered: GameWithMeta[] = [];
     for (const espn of espnEvents) {
-      const comp = espn.competitions[0];
-      if (!comp) continue;
+      const comp = espn.competitions?.[0];
+      if (!comp || comp.competitors.length < 2) continue;
       const espnTeams = comp.competitors.map((c) => c.team.displayName);
-
-      // Both teams must be in the tournament field
       if (!espnTeams.every((t) => isTournamentTeam(t))) continue;
 
-      const alreadyCovered = espnTeams.some((t) =>
-        [...coveredTeams].some((ct) => teamsMatch(normalize(t), ct))
-      );
-      if (!alreadyCovered) {
-        const game = buildGameFromESPN(espn);
-        if (game) extraGames.push(game as GameWithMeta);
-      }
-    }
+      const game = buildGameFromESPN(espn);
+      if (!game) continue;
 
-    const allGamesUnfiltered = [...oddsGames, ...extraGames];
+      const gameKey = makeGameKey(game.home_team, game.away_team);
+      const dbOdds = dbOddsMap.get(gameKey);
+      const overrideOdds = getPregameOverride(game.underdog.name);
+      if (dbOdds) {
+        game.underdog.odds = overrideOdds ?? dbOdds.underdogOdds;
+        game.favorite.odds = dbOdds.favoriteOdds;
+        game.oddsSource = dbOdds.oddsSource;
+      } else if (overrideOdds !== undefined) {
+        game.underdog.odds = overrideOdds;
+        game.oddsSource = "Pregame";
+      }
+
+      allGamesUnfiltered.push(game as GameWithMeta);
+    }
 
     // Filter out: 1 vs 16 matchups and First Four (same-seed play-in) games
     const allGamesRaw = allGamesUnfiltered.filter((g) => {
@@ -871,8 +1102,38 @@ export async function GET() {
       return true;
     });
 
+    // Merge completed games from DB (single source of truth) and persist new finals from ESPN
+    const mergedKeys = new Set(allGamesRaw.map((g) => makeGameKey(g.home_team, g.away_team)));
+    for (const g of allGamesRaw) {
+      const gameKey = makeGameKey(g.home_team, g.away_team);
+      const doc = completedMap.get(gameKey);
+      if (doc) {
+        g.status = "final";
+        g.result = doc.result;
+        g.commence_time = doc.commence_time;
+        if (g.favorite) g.favorite.score = doc.favorite_score;
+        if (g.underdog) g.underdog.score = doc.underdog_score;
+        if (doc.underdog_odds && g.underdog) g.underdog.odds = doc.underdog_odds;
+      } else if (g.status === "final") {
+        await saveCompletedGame({
+          game_key: gameKey,
+          underdog_name: g.underdog.name,
+          favorite_name: g.favorite.name,
+          underdog_odds: g.underdog.odds ?? 0,
+          result: g.result as "win" | "loss" | "push",
+          underdog_score: g.underdog.score,
+          favorite_score: g.favorite.score,
+          commence_time: g.commence_time ?? "",
+          espn_id: g.espnId,
+          source: "espn",
+        });
+      }
+    }
+    const backfillOnly = [...completedMap.values()].filter((doc) => !mergedKeys.has(doc.game_key));
+    const allGamesMerged = [...allGamesRaw, ...backfillOnly.map(completedDocToApiGame)];
+
     // Fetch win probability for live games (parallel, up to 8 at once)
-    const liveGames = allGamesRaw.filter((g) => g.status === "live" && g.espnId);
+    const liveGames = allGamesMerged.filter((g) => g.status === "live" && g.espnId);
     const wpResults = await Promise.all(
       liveGames.map(async (g) => {
         const wp = await fetchWinProbability(g.espnId!);
@@ -883,7 +1144,7 @@ export async function GET() {
     const wpMap = new Map(wpResults.map((r) => [r.id, r]));
 
     // Merge win probability, fill missing logos, clean up internal fields
-    const allGames: ApiGame[] = allGamesRaw.map((g) => {
+    const allGames: ApiGame[] = allGamesMerged.map((g) => {
       const wpEntry = wpMap.get(g.id);
       let underdogWinPct: number | undefined;
 
@@ -903,7 +1164,11 @@ export async function GET() {
         || logoLookup.get(normalize(game.underdog.name))
         || getStaticLogo(game.underdog.name);
 
-      const underdogOdds = getPregameOverride(game.underdog.name) ?? game.underdog.odds;
+      const gameKey = makeGameKey(game.home_team, game.away_team);
+      const underdogOdds =
+        getPregameOverride(game.underdog.name)
+        ?? dbOddsMap.get(gameKey)?.underdogOdds
+        ?? game.underdog.odds;
 
       return {
         ...game,
@@ -913,8 +1178,17 @@ export async function GET() {
       };
     });
 
+    // Deduplicate by canonical game key (guards against backfill + ESPN producing the same game)
+    const seenKeys = new Set<string>();
+    const dedupedGames = allGames.filter((g) => {
+      const key = makeGameKey(g.home_team, g.away_team);
+      if (seenKeys.has(key)) return false;
+      seenKeys.add(key);
+      return true;
+    });
+
     // Sort: live first, then upcoming by time, then final
-    allGames.sort((a, b) => {
+    dedupedGames.sort((a, b) => {
       const order = { live: 0, upcoming: 1, final: 2 };
       if (order[a.status] !== order[b.status])
         return order[a.status] - order[b.status];
@@ -925,10 +1199,9 @@ export async function GET() {
     });
 
     const response: GamesResponse = {
-      games: allGames,
+      games: dedupedGames,
       fetchedAt: new Date().toISOString(),
-      oddsRemaining: oddsResult.remaining,
-      oddsOutOfCredits: oddsResult.remaining === 0,
+      // Odds come from DB only (no Odds API call = no credits used)
     };
 
     return NextResponse.json(response, {

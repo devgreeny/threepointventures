@@ -15,7 +15,7 @@ export interface EVSnapshot {
   v: number;
 }
 
-function getEVSnapshots(): EVSnapshot[] {
+function getEVSnapshotsLocal(): EVSnapshot[] {
   if (typeof window === "undefined") return [];
   try {
     const raw = localStorage.getItem(EV_SNAPSHOTS_KEY);
@@ -27,10 +27,10 @@ function getEVSnapshots(): EVSnapshot[] {
   }
 }
 
-function appendEVSnapshot(timestamp: number, value: number): void {
+function appendEVSnapshotLocal(timestamp: number, value: number): void {
   if (typeof window === "undefined") return;
   const t = Math.floor(timestamp / MINUTE_MS) * MINUTE_MS;
-  const snapshots = getEVSnapshots();
+  const snapshots = getEVSnapshotsLocal();
   const filtered = snapshots.filter((s) => s.t !== t);
   filtered.push({ t, v: value });
   filtered.sort((a, b) => a.t - b.t);
@@ -40,6 +40,33 @@ function appendEVSnapshot(timestamp: number, value: number): void {
     localStorage.setItem(EV_SNAPSHOTS_KEY, JSON.stringify(trimmed));
   } catch {
     // quota or disabled
+  }
+}
+
+async function fetchEVSnapshots(): Promise<EVSnapshot[]> {
+  try {
+    const res = await fetch("/api/ev-snapshots");
+    if (!res.ok) return getEVSnapshotsLocal();
+    const data = (await res.json()) as { snapshots?: EVSnapshot[] };
+    return Array.isArray(data?.snapshots) ? data.snapshots : [];
+  } catch {
+    return getEVSnapshotsLocal();
+  }
+}
+
+async function pushEVSnapshot(timestamp: number, value: number): Promise<EVSnapshot[] | null> {
+  const t = Math.floor(timestamp / MINUTE_MS) * MINUTE_MS;
+  try {
+    const res = await fetch("/api/ev-snapshots", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ t, v: value }),
+    });
+    if (!res.ok) return null;
+    const data = (await res.json()) as { snapshots?: EVSnapshot[] };
+    return Array.isArray(data?.snapshots) ? data.snapshots : null;
+  } catch {
+    return null;
   }
 }
 
@@ -360,20 +387,26 @@ function EVChart({ games }: { games: ApiGame[] }) {
   const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const chartWrapRef = useRef<HTMLDivElement>(null);
+  const lastPostedMinuteRef = useRef<number>(0);
 
   useEffect(() => {
     setNow(Date.now());
-    setSnapshots(getEVSnapshots());
+    fetchEVSnapshots().then(setSnapshots);
     const id = setInterval(() => {
       const t = Date.now();
       setNow(t);
-      setSnapshots(getEVSnapshots());
+      fetchEVSnapshots().then(setSnapshots);
     }, MINUTE_MS);
     return () => clearInterval(id);
   }, []);
 
   const withOdds = games.filter((g) => g.underdog.odds !== 0 && g.commence_time);
   const startedGames = withOdds.filter((g) => g.status === "live" || g.status === "final");
+  // Include live games even with 0 odds so the blue dot shows on the chart
+  const anyLive = games.some((g) => g.status === "live");
+  const gamesWithMarkers = games.filter(
+    (g) => (g.status === "final" || g.status === "live") && g.commence_time
+  );
 
   // Current cumulative EV from games (for live display and recording)
   const currentCumulativeEV = startedGames.length
@@ -381,14 +414,20 @@ function EVChart({ games }: { games: ApiGame[] }) {
         .filter((g) => new Date(g.commence_time).getTime() <= now)
         .reduce((sum, g) => sum + calcEV(g), 0)
     : 0;
-  const anyLive = withOdds.some((g) => g.status === "live");
 
-  // Record a snapshot every minute when we have started games
+  // Record a snapshot once per minute when we have started games (server-first, fallback to localStorage)
   useEffect(() => {
     if (startedGames.length === 0 || now === 0) return;
     const floored = Math.floor(now / MINUTE_MS) * MINUTE_MS;
-    appendEVSnapshot(floored, currentCumulativeEV);
-    setSnapshots(getEVSnapshots());
+    if (floored === lastPostedMinuteRef.current) return;
+    lastPostedMinuteRef.current = floored;
+    pushEVSnapshot(floored, currentCumulativeEV).then((serverSnapshots) => {
+      if (serverSnapshots) setSnapshots(serverSnapshots);
+      else {
+        appendEVSnapshotLocal(floored, currentCumulativeEV);
+        setSnapshots(getEVSnapshotsLocal());
+      }
+    });
   }, [now, currentCumulativeEV, startedGames.length]);
 
   useEffect(() => {
@@ -415,13 +454,13 @@ function EVChart({ games }: { games: ApiGame[] }) {
         </div>
         <div className="flex items-center justify-center gap-4 px-4 pb-3 text-[11px] text-tertiary">
           <span className="flex items-center gap-1.5">
-            <span className="h-2 w-2 rounded-full bg-ios-green" /> Winning
+            <span className="h-2 w-2 rounded-full bg-ios-green" /> Win
           </span>
           <span className="flex items-center gap-1.5">
             <span className="h-2 w-2 rounded-full bg-ios-blue" /> Live
           </span>
           <span className="flex items-center gap-1.5">
-            <span className="h-2 w-2 rounded-full bg-ios-red" /> Losing
+            <span className="h-2 w-2 rounded-full bg-ios-red" /> Loss
           </span>
         </div>
       </div>
@@ -662,50 +701,57 @@ function EVChart({ games }: { games: ApiGame[] }) {
             </g>
           )}
 
-          {/* Game start & end dots on the line */}
-          {withOdds
-            .filter((g) => g.status === "final" || g.status === "live")
-            .map((g, gi) => {
+          {/* Game dots on the line — includes live games (for blue dot) */}
+          {(() => {
+            const placed: { x: number; y: number; above: boolean }[] = [];
+            return gamesWithMarkers.map((g, gi) => {
               const start = new Date(g.commence_time).getTime();
               const startIdx = displayTicks.findIndex((t) => t.time >= start);
               const idx = startIdx < 0 ? displayTicks.length - 1 : startIdx;
               if (idx < 0 || idx >= displayTicks.length) return null;
-              const endIdx = g.status === "final" ? Math.min(idx + 1, displayTicks.length - 1) : null;
               const ev = calcEV(g);
               const won = g.result === "win";
               const live = g.status === "live";
               const color = live ? "#007aff" : won ? "#34c759" : "#ff3b30";
               const label = schoolName(g.underdog.name);
+              const dotX = toX(idx);
+              const dotY = toY(displayTicks[idx].cumulative);
+
+              // Decide label position: prefer above line for wins, below for losses
+              let above = dotY <= toY(0);
+              // Check for label collisions with previously placed labels
+              const tooClose = placed.some(
+                (p) => Math.abs(p.x - dotX) < 45 && Math.abs(p.y - dotY) < 20 && p.above === above
+              );
+              if (tooClose) above = !above;
+              const labelY = above ? dotY - 8 : dotY + 14;
+              const evLabelY = above ? dotY - 17 : dotY + 23;
+              placed.push({ x: dotX, y: dotY, above });
+
+              // Clamp label x so it doesn't go off the edges
+              const clampedX = Math.max(PAD_L + 20, Math.min(dotX, svgW - PAD_R - 20));
 
               return (
                 <g key={`evt-${gi}`}>
-                  {/* Start dot (tipoff) — on the line at game start */}
                   <circle
-                    cx={toX(idx)} cy={toY(displayTicks[idx].cumulative)} r={4}
+                    cx={dotX} cy={dotY} r={4}
                     fill={color} stroke="#fff" strokeWidth="1.5"
                   />
-                  {/* End dot (first tick after result) — for final games only */}
-                  {endIdx !== null && endIdx !== idx && (
-                    <circle
-                      cx={toX(endIdx)} cy={toY(displayTicks[endIdx].cumulative)} r={5}
-                      fill="none" stroke={color} strokeWidth="2"
-                    />
-                  )}
                   {live && (
                     <circle
-                      cx={toX(idx)} cy={toY(displayTicks[idx].cumulative)} r={7}
+                      cx={dotX} cy={dotY} r={7}
                       fill="none" stroke="#007aff" strokeWidth="1.5" opacity="0.4"
                     />
                   )}
                   <text
-                    x={toX(idx)} y={toY(displayTicks[idx].cumulative) > toY(0) ? toY(displayTicks[idx].cumulative) + 14 : toY(displayTicks[idx].cumulative) - 8}
+                    x={clampedX} y={labelY}
                     textAnchor="middle" fill={color} fontSize="8" fontWeight="600"
                   >
-                    {live ? `${label}` : won ? `${label} W` : `${label} L`}
+                    {live ? label : won ? `${label} W` : `${label} L`}
                   </text>
-                  {g.status === "final" && (
+                  {g.status === "final" && ev !== 0 && (
                     <text
-                      x={toX(idx)} y={toY(displayTicks[idx].cumulative) > toY(0) ? toY(displayTicks[idx].cumulative) + 23 : toY(displayTicks[idx].cumulative) - 17}
+                      x={clampedX} y={evLabelY}
                       textAnchor="middle" fill={color} fontSize="7" fontWeight="500" opacity="0.7"
                     >
                       {ev >= 0 ? `+$${ev.toFixed(0)}` : `-$${Math.abs(ev).toFixed(0)}`}
@@ -713,7 +759,8 @@ function EVChart({ games }: { games: ApiGame[] }) {
                   )}
                 </g>
               );
-            })}
+            });
+          })()}
 
           {/* Leading edge dot (when not hovering) */}
           {hoveredIndex === null && (
@@ -778,13 +825,13 @@ function EVChart({ games }: { games: ApiGame[] }) {
       {/* Legend */}
       <div className="flex items-center justify-center gap-4 px-4 pb-3 text-[11px] text-tertiary">
         <span className="flex items-center gap-1.5">
-          <span className="h-2 w-2 rounded-full bg-ios-green" /> Winning
+          <span className="h-2 w-2 rounded-full bg-ios-green" /> Win
         </span>
         <span className="flex items-center gap-1.5">
           <span className="h-2 w-2 rounded-full bg-ios-blue" /> Live
         </span>
         <span className="flex items-center gap-1.5">
-          <span className="h-2 w-2 rounded-full bg-ios-red" /> Losing
+          <span className="h-2 w-2 rounded-full bg-ios-red" /> Loss
         </span>
       </div>
     </div>
