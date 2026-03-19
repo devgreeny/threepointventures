@@ -345,8 +345,7 @@ function EVChart({ games }: { games: ApiGame[] }) {
         </div>
         <div className="flex items-center justify-center py-10">
           <div className="text-center">
-            <p className="text-[28px]">📈</p>
-            <p className="text-[13px] text-secondary mt-2">Chart goes live at tipoff</p>
+            <p className="text-[13px] text-secondary">Chart goes live at tipoff</p>
             <p className="text-[11px] text-tertiary mt-0.5">Updates in real time as games are played</p>
           </div>
         </div>
@@ -576,48 +575,6 @@ function EVChart({ games }: { games: ApiGame[] }) {
   );
 }
 
-/* ── EV breakdown per game ── */
-
-function EVRow({ game }: { game: ApiGame }) {
-  const ev = calcEV(game);
-  const payout = calcPayout(game.underdog.odds);
-  const short = schoolName(game.underdog.name);
-  const odds = game.underdog.odds;
-
-  let probLabel = "";
-  if (game.status === "live" && game.underdogWinPct !== undefined) {
-    probLabel = `${game.underdogWinPct.toFixed(0)}% live`;
-  } else if (game.status === "final") {
-    probLabel = game.result === "win" ? "100%" : "0%";
-  } else {
-    probLabel = `${(impliedProb(odds) * 100).toFixed(0)}% implied`;
-  }
-
-  return (
-    <div className="flex items-center gap-3 px-4 py-2.5">
-      <TeamLogo src={game.underdog.logo} alt={game.underdog.name} />
-      <div className="flex-1 min-w-0">
-        <p className="text-[14px] font-medium truncate">
-          <span className="text-ios-blue font-semibold">{game.underdog.seed} </span>
-          {short}
-          <span className="text-tertiary font-normal"> {formatOdds(odds)}</span>
-        </p>
-        <p className="text-[11px] text-tertiary mt-0.5">{probLabel}</p>
-      </div>
-      <div className="text-right shrink-0">
-        <p className={`text-[14px] font-semibold tabular-nums ${
-          ev > 0.5 ? "text-ios-green" : ev < -0.5 ? "text-ios-red" : "text-foreground"
-        }`}>
-          {formatMoney(ev)}
-        </p>
-        <p className="text-[11px] text-tertiary tabular-nums">
-          {game.result !== "pending" ? (game.result === "win" ? `+$${payout.toFixed(0)}` : `-$${UNIT_SIZE}`) : `win $${payout.toFixed(0)}`}
-        </p>
-      </div>
-    </div>
-  );
-}
-
 /* ── Scores tab content ── */
 
 function Countdown({ games }: { games: ApiGame[] }) {
@@ -718,8 +675,7 @@ function ScoresTab({ games, stats, liveCount, lastUpdated, loading, error }: {
         </div>
         {games.length === 0 && !loading && (
           <div className="text-center py-24">
-            <p className="text-[32px]">🏀</p>
-            <p className="mt-3 text-[15px] text-secondary">No games found</p>
+            <p className="text-[15px] text-secondary">No games found</p>
             <p className="mt-1 text-[13px] text-tertiary">Check that your API key is configured</p>
           </div>
         )}
@@ -741,55 +697,6 @@ function ScoresTab({ games, stats, liveCount, lastUpdated, loading, error }: {
   );
 }
 
-/* ── EV tab content ── */
-
-function EVTab({ games, stats }: { games: ApiGame[]; stats: ReturnType<typeof getStats> }) {
-  const projColor = stats.projectedPL > 0 ? "text-ios-green" : stats.projectedPL < 0 ? "text-ios-red" : undefined;
-  const profitColor = stats.totalProfit > 0 ? "text-ios-green" : stats.totalProfit < 0 ? "text-ios-red" : undefined;
-
-  const sorted = [...games]
-    .filter((g) => g.underdog.odds !== 0)
-    .sort((a, b) => {
-      const order = { final: 0, live: 1, upcoming: 2 };
-      if (order[a.status] !== order[b.status]) return order[a.status] - order[b.status];
-      return new Date(a.commence_time || 0).getTime() - new Date(b.commence_time || 0).getTime();
-    });
-
-  return (
-    <>
-      <div className="bg-card shadow-card">
-        <div className="mx-auto max-w-lg px-5 py-4">
-          <div className="grid grid-cols-3 gap-2">
-            <StatItem label="Settled" value={formatMoney(stats.totalProfit)} color={profitColor} />
-            <StatItem label="Projected" value={formatMoney(stats.projectedPL)} color={projColor} />
-            <StatItem label="Bets" value={`${stats.total}`} />
-          </div>
-        </div>
-      </div>
-
-      <main className="mx-auto w-full max-w-lg flex-1 px-4 py-4">
-        <div className="mb-4">
-          <EVChart games={games} />
-        </div>
-
-        <div className="bg-card rounded-2xl shadow-card overflow-hidden">
-          <div className="px-4 pt-3 pb-2">
-            <h3 className="text-[13px] font-semibold text-secondary uppercase tracking-wide">
-              EV by Game
-            </h3>
-          </div>
-          {sorted.map((game, i) => (
-            <div key={game.id}>
-              {i > 0 && <div className="h-px bg-separator mx-4" />}
-              <EVRow game={game} />
-            </div>
-          ))}
-        </div>
-      </main>
-    </>
-  );
-}
-
 /* ── Main component ── */
 
 export default function LiveTracker() {
@@ -798,7 +705,6 @@ export default function LiveTracker() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
   const hasLiveRef = useRef(false);
-  const [tab, setTab] = useState<"scores" | "ev">("scores");
 
   const fetchGames = useCallback(async () => {
     try {
@@ -826,32 +732,6 @@ export default function LiveTracker() {
   const liveCount = games.filter((g) => g.status === "live").length;
 
   return (
-    <>
-      {/* Tab bar */}
-      <div className="bg-card border-b border-separator">
-        <div className="mx-auto max-w-lg flex">
-          {(["scores", "ev"] as const).map((t) => (
-            <button
-              key={t}
-              onClick={() => setTab(t)}
-              className={`flex-1 py-2.5 text-[14px] font-semibold text-center transition-colors relative ${
-                tab === t ? "text-ios-blue" : "text-tertiary"
-              }`}
-            >
-              {t === "scores" ? "Scores" : "EV"}
-              {tab === t && (
-                <span className="absolute bottom-0 left-1/4 right-1/4 h-[2.5px] rounded-full bg-ios-blue" />
-              )}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {tab === "scores" ? (
-        <ScoresTab games={games} stats={stats} liveCount={liveCount} lastUpdated={lastUpdated} loading={loading} error={error} />
-      ) : (
-        <EVTab games={games} stats={stats} />
-      )}
-    </>
+    <ScoresTab games={games} stats={stats} liveCount={liveCount} lastUpdated={lastUpdated} loading={loading} error={error} />
   );
 }
