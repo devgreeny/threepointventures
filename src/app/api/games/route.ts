@@ -416,14 +416,16 @@ const PREGAME_OVERRIDES: Record<string, number> = {
   troy: 650,
   "north dakota state": 950,
   "south florida": 164,
-  texas: 114,
+  "texas longhorns": 114,
   "texas am": 136,
   vcu: 120,
 };
 
 function getPregameOverride(underdogName: string): number | undefined {
   const n = normalize(underdogName);
-  for (const [key, odds] of Object.entries(PREGAME_OVERRIDES)) {
+  // Sort by key length descending so longer (more specific) keys match first
+  const sorted = Object.entries(PREGAME_OVERRIDES).sort((a, b) => b[0].length - a[0].length);
+  for (const [key, odds] of sorted) {
     if (n.includes(key) || key.includes(n)) return odds;
   }
   return undefined;
