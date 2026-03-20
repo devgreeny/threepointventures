@@ -65,10 +65,10 @@ const TOURNAMENT_FIELD: TournamentTeam[] = [
   // 2-seeds
   { name: "Houston", seed: 2, rank: 5, aliases: ["Houston Cougars"] },
   { name: "UConn", seed: 2, rank: 6, aliases: ["UConn Huskies", "Connecticut Huskies", "Connecticut"] },
-  { name: "Iowa State", seed: 2, rank: 7, aliases: ["Iowa State Cyclones", "Iowa St"] },
+  { name: "Iowa State", seed: 2, rank: 7, aliases: ["Iowa State Cyclones", "Iowa St", "Iowa St Cyclones"] },
   { name: "Purdue", seed: 2, rank: 8, aliases: ["Purdue Boilermakers"] },
   // 3-seeds
-  { name: "Michigan State", seed: 3, rank: 9, aliases: ["Michigan St Spartans", "Michigan St", "Michigan State Spartans"] },
+  { name: "Michigan State", seed: 3, rank: 9, aliases: ["Michigan State Spartans", "Michigan St Spartans", "Michigan St"] },
   { name: "Illinois", seed: 3, rank: 10, aliases: ["Illinois Fighting Illini"] },
   { name: "Gonzaga", seed: 3, rank: 11, aliases: ["Gonzaga Bulldogs"] },
   { name: "Virginia", seed: 3, rank: 12, aliases: ["Virginia Cavaliers"] },
@@ -79,58 +79,58 @@ const TOURNAMENT_FIELD: TournamentTeam[] = [
   { name: "Arkansas", seed: 4, rank: 16, aliases: ["Arkansas Razorbacks"] },
   // 5-seeds
   { name: "Vanderbilt", seed: 5, rank: 17, aliases: ["Vanderbilt Commodores"] },
-  { name: "St. John's", seed: 5, rank: 18, aliases: ["St. John's Red Storm", "St. John's (NY)", "Saint Johns", "St Johns"] },
+  { name: "St. John's", seed: 5, rank: 18, aliases: ["St. John's Red Storm", "St. John's (NY)", "Saint Johns", "St Johns", "Saint John's Red Storm"] },
   { name: "Texas Tech", seed: 5, rank: 19, aliases: ["Texas Tech Red Raiders"] },
   { name: "Wisconsin", seed: 5, rank: 20, aliases: ["Wisconsin Badgers"] },
   // 6-seeds
   { name: "Tennessee", seed: 6, rank: 21, aliases: ["Tennessee Volunteers"] },
   { name: "North Carolina", seed: 6, rank: 22, aliases: ["North Carolina Tar Heels", "UNC"] },
   { name: "Louisville", seed: 6, rank: 23, aliases: ["Louisville Cardinals"] },
-  { name: "BYU", seed: 6, rank: 24, aliases: ["BYU Cougars", "Brigham Young"] },
+  { name: "BYU", seed: 6, rank: 24, aliases: ["BYU Cougars", "Brigham Young", "Brigham Young Cougars"] },
   // 7-seeds
   { name: "Kentucky", seed: 7, rank: 25, aliases: ["Kentucky Wildcats"] },
-  { name: "Saint Mary's", seed: 7, rank: 26, aliases: ["Saint Mary's Gaels", "Saint Mary's (CA)", "St. Mary's"] },
-  { name: "Miami", seed: 7, rank: 27, aliases: ["Miami Hurricanes", "Miami (FL)"] },
+  { name: "Saint Mary's", seed: 7, rank: 26, aliases: ["Saint Mary's Gaels", "Saint Mary's (CA)", "St. Mary's", "St. Mary's Gaels"] },
+  { name: "Miami", seed: 7, rank: 27, aliases: ["Miami Hurricanes", "Miami (FL)", "Miami FL Hurricanes"] },
   { name: "UCLA", seed: 7, rank: 28, aliases: ["UCLA Bruins"] },
   // 8-seeds
   { name: "Clemson", seed: 8, rank: 29, aliases: ["Clemson Tigers"] },
   { name: "Villanova", seed: 8, rank: 30, aliases: ["Villanova Wildcats"] },
-  { name: "Ohio State", seed: 8, rank: 31, aliases: ["Ohio State Buckeyes", "Ohio St"] },
+  { name: "Ohio State", seed: 8, rank: 31, aliases: ["Ohio State Buckeyes", "Ohio St", "Ohio St Buckeyes"] },
   { name: "Georgia", seed: 8, rank: 32, aliases: ["Georgia Bulldogs"] },
   // 9-seeds
-  { name: "Utah State", seed: 9, rank: 33, aliases: ["Utah State Aggies", "Utah St"] },
+  { name: "Utah State", seed: 9, rank: 33, aliases: ["Utah State Aggies", "Utah St", "Utah St Aggies"] },
   { name: "TCU", seed: 9, rank: 34, aliases: ["TCU Horned Frogs"] },
-  { name: "Saint Louis", seed: 9, rank: 35, aliases: ["Saint Louis Billikens", "St. Louis"] },
+  { name: "Saint Louis", seed: 9, rank: 35, aliases: ["Saint Louis Billikens", "St. Louis", "St. Louis Billikens"] },
   { name: "Iowa", seed: 9, rank: 36, aliases: ["Iowa Hawkeyes"] },
   // 10-seeds
   { name: "Santa Clara", seed: 10, rank: 37, aliases: ["Santa Clara Broncos"] },
   { name: "UCF", seed: 10, rank: 38, aliases: ["UCF Knights"] },
   { name: "Missouri", seed: 10, rank: 39, aliases: ["Missouri Tigers"] },
-  { name: "Texas A&M", seed: 10, rank: 40, aliases: ["Texas A&M Aggies", "Texas AM"] },
+  { name: "Texas A&M", seed: 10, rank: 40, aliases: ["Texas A&M Aggies", "Texas AM", "Texas AM Aggies"] },
   // 11-seeds (includes First Four play-in teams)
-  { name: "NC State", seed: 11, rank: 41, aliases: ["NC State Wolfpack", "North Carolina State"] },
+  { name: "NC State", seed: 11, rank: 41, aliases: ["NC State Wolfpack", "North Carolina State", "North Carolina State Wolfpack"] },
   { name: "Texas", seed: 11, rank: 42, aliases: ["Texas Longhorns"] },
   { name: "SMU", seed: 11, rank: 43, aliases: ["SMU Mustangs"] },
-  { name: "Miami (OH)", seed: 11, rank: 44, aliases: ["Miami (OH) RedHawks", "Miami Ohio", "Miami RedHawks"] },
+  { name: "Miami (OH)", seed: 11, rank: 44, aliases: ["Miami (OH) RedHawks", "Miami Ohio", "Miami Ohio RedHawks", "Miami RedHawks"] },
   { name: "VCU", seed: 11, rank: 45, aliases: ["VCU Rams"] },
   { name: "South Florida", seed: 11, rank: 46, aliases: ["South Florida Bulls", "USF", "USF Bulls"] },
   // 12-seeds
-  { name: "McNeese", seed: 12, rank: 47, aliases: ["McNeese Cowboys", "McNeese State", "McNeese St"] },
+  { name: "McNeese", seed: 12, rank: 47, aliases: ["McNeese Cowboys", "McNeese State", "McNeese St", "McNeese St Cowboys", "McNeese State Cowboys"] },
   { name: "Akron", seed: 12, rank: 48, aliases: ["Akron Zips"] },
-  { name: "Northern Iowa", seed: 12, rank: 49, aliases: ["Northern Iowa Panthers", "UNI"] },
+  { name: "Northern Iowa", seed: 12, rank: 49, aliases: ["Northern Iowa Panthers", "UNI", "UNI Panthers"] },
   { name: "High Point", seed: 12, rank: 50, aliases: ["High Point Panthers"] },
   // 13-seeds
-  { name: "California Baptist", seed: 13, rank: 51, aliases: ["Cal Baptist Lancers", "Cal Baptist", "CBU"] },
+  { name: "California Baptist", seed: 13, rank: 51, aliases: ["California Baptist Lancers", "Cal Baptist Lancers", "Cal Baptist", "CBU"] },
   { name: "Hofstra", seed: 13, rank: 52, aliases: ["Hofstra Pride"] },
   { name: "Troy", seed: 13, rank: 53, aliases: ["Troy Trojans"] },
   { name: "Hawai'i", seed: 13, rank: 54, aliases: ["Hawai'i Rainbow Warriors", "Hawaii Rainbow Warriors", "Hawaii"] },
   // 14-seeds
-  { name: "North Dakota State", seed: 14, rank: 55, aliases: ["North Dakota St Bison", "North Dakota St", "NDSU"] },
+  { name: "North Dakota State", seed: 14, rank: 55, aliases: ["North Dakota State Bison", "North Dakota St Bison", "North Dakota St", "NDSU"] },
   { name: "Penn", seed: 14, rank: 56, aliases: ["Pennsylvania Quakers", "Pennsylvania"] },
-  { name: "Wright State", seed: 14, rank: 57, aliases: ["Wright St Raiders", "Wright St"] },
-  { name: "Kennesaw State", seed: 14, rank: 58, aliases: ["Kennesaw St Owls", "Kennesaw St"] },
+  { name: "Wright State", seed: 14, rank: 57, aliases: ["Wright State Raiders", "Wright St Raiders", "Wright St"] },
+  { name: "Kennesaw State", seed: 14, rank: 58, aliases: ["Kennesaw State Owls", "Kennesaw St Owls", "Kennesaw St"] },
   // 15-seeds
-  { name: "Tennessee State", seed: 15, rank: 59, aliases: ["Tennessee St Tigers", "Tennessee St"] },
+  { name: "Tennessee State", seed: 15, rank: 59, aliases: ["Tennessee State Tigers", "Tennessee St Tigers", "Tennessee St"] },
   { name: "Idaho", seed: 15, rank: 60, aliases: ["Idaho Vandals"] },
   { name: "Furman", seed: 15, rank: 61, aliases: ["Furman Paladins"] },
   { name: "Queens", seed: 15, rank: 62, aliases: ["Queens University Royals", "Queens (NC)", "Queens University"] },
@@ -414,6 +414,11 @@ function teamsMatch(a: string, b: string): boolean {
 const PREGAME_OVERRIDES: Record<string, number> = {
   tcu: 120,
   troy: 650,
+  "north dakota state": 950,
+  "south florida": 164,
+  texas: 114,
+  "texas am": 136,
+  vcu: 120,
 };
 
 function getPregameOverride(underdogName: string): number | undefined {
@@ -750,17 +755,32 @@ async function fetchOdds(): Promise<{ events: OddsEvent[]; remaining?: number }>
 }
 
 // ── Fetch live scores from ESPN ──
+// Covers the full tournament window (start through 3 weeks out) so games
+// are visible during multi-day breaks between rounds.
 
-async function fetchESPN(): Promise<ESPNEvent[]> {
+function getTournamentDateRange(): string[] {
   const today = new Date();
+  const year = today.getFullYear();
+  // Tournament typically runs mid-March through early April
+  const tourneyStart = new Date(year, 2, 18); // March 18
+  const start = tourneyStart < today ? tourneyStart : today;
+  // Look up to 3 days ahead for upcoming round scheduling
+  const end = new Date(today);
+  end.setDate(end.getDate() + 3);
+
   const dates: string[] = [];
-  for (let i = -1; i <= 1; i++) {
-    const d = new Date(today);
-    d.setDate(d.getDate() + i);
+  const d = new Date(start);
+  while (d <= end) {
     dates.push(
       `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, "0")}${String(d.getDate()).padStart(2, "0")}`
     );
+    d.setDate(d.getDate() + 1);
   }
+  return dates;
+}
+
+async function fetchESPN(): Promise<ESPNEvent[]> {
+  const dates = getTournamentDateRange();
 
   const allEvents: ESPNEvent[] = [];
   for (const date of dates) {

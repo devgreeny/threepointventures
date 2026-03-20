@@ -509,8 +509,6 @@ function EVChart({ games }: { games: ApiGame[] }) {
   const displayTicks = ticksInRange.length > 0 ? ticksInRange : ticks;
   const firstVal = displayTicks[0].cumulative;
   const lastVal = displayTicks[displayTicks.length - 1].cumulative;
-  const change = lastVal - firstVal;
-  const changePct = firstVal !== 0 ? (change / Math.abs(firstVal)) * 100 : (lastVal !== 0 ? 100 : 0);
   const isPositive = lastVal >= 0;
 
   const W_PER_MIN = 2;
@@ -595,11 +593,6 @@ function EVChart({ games }: { games: ApiGame[] }) {
               isPositive ? "text-ios-green" : lastVal < 0 ? "text-ios-red" : "text-foreground"
             }`}>
               {lastVal >= 0 ? "+" : ""}{lastVal.toFixed(2)} USD
-            </p>
-            <p className={`text-[13px] mt-0.5 tabular-nums ${
-              change >= 0 ? "text-ios-green" : "text-ios-red"
-            }`}>
-              {change >= 0 ? "+" : ""}{change.toFixed(2)} ({changePct >= 0 ? "+" : ""}{changePct.toFixed(1)}%) {change >= 0 ? "↑" : "↓"} {timeframe === "1D" ? "today" : timeframe.toLowerCase()}
             </p>
             <p className="text-[11px] text-tertiary mt-1">
               {lastUpdated}
@@ -709,7 +702,6 @@ function EVChart({ games }: { games: ApiGame[] }) {
               const startIdx = displayTicks.findIndex((t) => t.time >= start);
               const idx = startIdx < 0 ? displayTicks.length - 1 : startIdx;
               if (idx < 0 || idx >= displayTicks.length) return null;
-              const ev = calcEV(g);
               const won = g.result === "win";
               const live = g.status === "live";
               const color = live ? "#007aff" : won ? "#34c759" : "#ff3b30";
@@ -725,7 +717,6 @@ function EVChart({ games }: { games: ApiGame[] }) {
               );
               if (tooClose) above = !above;
               const labelY = above ? dotY - 8 : dotY + 14;
-              const evLabelY = above ? dotY - 17 : dotY + 23;
               placed.push({ x: dotX, y: dotY, above });
 
               // Clamp label x so it doesn't go off the edges
@@ -747,16 +738,8 @@ function EVChart({ games }: { games: ApiGame[] }) {
                     x={clampedX} y={labelY}
                     textAnchor="middle" fill={color} fontSize="8" fontWeight="600"
                   >
-                    {live ? label : won ? `${label} W` : `${label} L`}
+                    {label}
                   </text>
-                  {g.status === "final" && ev !== 0 && (
-                    <text
-                      x={clampedX} y={evLabelY}
-                      textAnchor="middle" fill={color} fontSize="7" fontWeight="500" opacity="0.7"
-                    >
-                      {ev >= 0 ? `+$${ev.toFixed(0)}` : `-$${Math.abs(ev).toFixed(0)}`}
-                    </text>
-                  )}
                 </g>
               );
             });
@@ -910,10 +893,9 @@ function ScoresTab({ games, stats, liveCount, lastUpdated, loading, error, oddsO
     <>
       <div className="bg-card shadow-card">
         <div className="mx-auto max-w-lg px-5 py-4">
-          <div className="grid grid-cols-4 gap-2">
+          <div className="grid grid-cols-3 gap-2">
             <StatItem label="Record" value={`${stats.wins}–${stats.losses}`} />
             <StatItem label="P/L" value={formatMoney(stats.totalProfit)} color={profitColor} />
-            <StatItem label="ROI" value={`${stats.roi >= 0 ? "+" : ""}${stats.roi.toFixed(0)}%`} color={profitColor} />
             <StatItem label="Bets" value={`${stats.total}`} />
           </div>
           <div className="flex items-center justify-center gap-1.5 mt-3 text-[12px] text-tertiary">

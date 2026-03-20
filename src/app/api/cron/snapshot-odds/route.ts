@@ -21,9 +21,15 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
+  const now = Date.now();
   const { events } = await fetchOddsFromAPI();
   const entries: PregameOddsEntry[] = [];
+  let skipped = 0;
   for (const e of events) {
+    if (new Date(e.commence_time).getTime() <= now) {
+      skipped++;
+      continue;
+    }
     const entry = buildPregameSnapshotFromOddsEvent(e);
     if (entry) entries.push(entry);
   }
@@ -34,5 +40,6 @@ export async function GET(request: NextRequest) {
     ok: true,
     date: new Date().toISOString(),
     count: entries.length,
+    skippedAlreadyStarted: skipped,
   });
 }
