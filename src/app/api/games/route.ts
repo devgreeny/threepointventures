@@ -948,10 +948,7 @@ function buildGame(
         if (dogScore !== undefined && favScore !== undefined) {
           result = dogScore > favScore ? "win" : dogScore < favScore ? "loss" : "push";
         }
-      } else if (
-        comp.status.type.name === "STATUS_IN_PROGRESS" ||
-        comp.status.type.name === "STATUS_HALFTIME"
-      ) {
+      } else if (comp.status.type.name !== "STATUS_SCHEDULED") {
         status = "live";
         clock = comp.status.displayClock;
         period = comp.status.period;
@@ -1012,10 +1009,7 @@ function buildGameFromESPN(espn: ESPNEvent): ApiGame | null {
     if (dogScore !== undefined && favScore !== undefined) {
       result = dogScore > favScore ? "win" : dogScore < favScore ? "loss" : "push";
     }
-  } else if (
-    comp.status.type.name === "STATUS_IN_PROGRESS" ||
-    comp.status.type.name === "STATUS_HALFTIME"
-  ) {
+  } else if (comp.status.type.name !== "STATUS_SCHEDULED") {
     status = "live";
   }
 
