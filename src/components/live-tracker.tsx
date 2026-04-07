@@ -234,13 +234,12 @@ function PLChart({ games }: { games: ApiGame[] }) {
   const isPositive = finalPL >= 0;
 
   const N = points.length;
-  const W_PER_GAME = Math.max(60, Math.min(90, 600 / N));
-  const svgW = Math.max(N * W_PER_GAME + 120, 360);
-  const H = 420;
+  const svgW = Math.max(N * 48 + 100, 500);
+  const H = 360;
   const PAD_L = 52;
-  const PAD_R = 16;
-  const PAD_T = 32;
-  const PAD_B = 64;
+  const PAD_R = 24;
+  const PAD_T = 28;
+  const PAD_B = 48;
   const chartW = svgW - PAD_L - PAD_R;
   const chartH = H - PAD_T - PAD_B;
 
@@ -268,7 +267,7 @@ function PLChart({ games }: { games: ApiGame[] }) {
     const el = chartWrapRef.current;
     if (!el) return;
     const rect = el.getBoundingClientRect();
-    const xRel = e.clientX - rect.left;
+    const xRel = e.clientX - rect.left + el.scrollLeft;
     let closest = -1;
     let closestDist = Infinity;
     for (let i = 0; i < N; i++) {
@@ -278,7 +277,7 @@ function PLChart({ games }: { games: ApiGame[] }) {
         closest = i;
       }
     }
-    setHoveredIndex(closestDist < 40 ? closest : null);
+    setHoveredIndex(closestDist < 30 ? closest : null);
   };
 
   return (
@@ -302,9 +301,10 @@ function PLChart({ games }: { games: ApiGame[] }) {
         ref={chartWrapRef}
         onMouseMove={handleMouseMove}
         onMouseLeave={() => setHoveredIndex(null)}
-        className="relative px-2 pb-3"
+        className="relative px-2 pb-3 overflow-x-auto"
       >
-        <svg viewBox={`0 0 ${svgW} ${H}`} className="block w-full" style={{ maxHeight: H }}>
+        <div className="relative" style={{ width: svgW, minWidth: "100%" }}>
+        <svg viewBox={`0 0 ${svgW} ${H}`} className="block" style={{ width: svgW, height: H }}>
           {yTicks.map((v) => (
             <g key={v}>
               <line
@@ -384,13 +384,8 @@ function PLChart({ games }: { games: ApiGame[] }) {
 
         {hoveredIndex !== null && (() => {
           const p = points[hoveredIndex];
-          const cx = toX(hoveredIndex);
-          const svgEl = chartWrapRef.current;
-          if (!svgEl) return null;
-          const wrapW = svgEl.clientWidth;
-          const tooltipW = 140;
-          const scaledX = (cx / svgW) * wrapW;
-          const left = Math.max(4, Math.min(scaledX - tooltipW / 2, wrapW - tooltipW - 4));
+          const tooltipW = 150;
+          const left = Math.max(4, Math.min(toX(hoveredIndex) - tooltipW / 2, svgW - tooltipW - 4));
 
           return (
             <div
@@ -412,6 +407,7 @@ function PLChart({ games }: { games: ApiGame[] }) {
             </div>
           );
         })()}
+        </div>
       </div>
 
       <div className="flex items-center justify-center gap-4 px-4 pb-3 text-[11px] text-tertiary">
