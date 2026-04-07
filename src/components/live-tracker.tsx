@@ -236,11 +236,11 @@ function PLChart({ games }: { games: ApiGame[] }) {
   const N = points.length;
   const W_PER_GAME = Math.max(60, Math.min(90, 600 / N));
   const svgW = Math.max(N * W_PER_GAME + 120, 360);
-  const H = 280;
+  const H = 420;
   const PAD_L = 52;
   const PAD_R = 16;
-  const PAD_T = 28;
-  const PAD_B = 60;
+  const PAD_T = 32;
+  const PAD_B = 64;
   const chartW = svgW - PAD_L - PAD_R;
   const chartH = H - PAD_T - PAD_B;
 
@@ -350,12 +350,12 @@ function PLChart({ games }: { games: ApiGame[] }) {
             return (
               <g key={i}>
                 <circle
-                  cx={cx} cy={cy} r={isHovered ? 6 : 4.5}
+                  cx={cx} cy={cy} r={isHovered ? 7 : 5}
                   fill={color} stroke="#fff" strokeWidth="2"
                 />
                 <text
                   x={cx} y={labelY}
-                  textAnchor="middle" fill={color} fontSize="9" fontWeight="600"
+                  textAnchor="middle" fill={color} fontSize="10" fontWeight="600"
                 >
                   {p.label}
                 </text>
